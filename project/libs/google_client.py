@@ -1,0 +1,125 @@
+import os
+import time
+from typing import Dict, Any, Optional, List
+from dotenv import load_dotenv
+import googlemaps
+
+# Load environment variables from .env
+load_dotenv()
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+class GoogleClient:
+    """Google Maps Places API client for fetching business data."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or GOOGLE_API_KEY
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY is missing. Please add it to your environment variables.")
+        self.client = googlemaps.Client(key=self.api_key)
+
+    def search_place(self, query: str, location: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for a business by text query and location.
+        :param query: Business name (string)
+        :param location: Location string (city, state)
+        :return: First matching business dict or None
+        """
+        results = self.client.places(query=f"{query}, {location}")
+        candidates = results.get("results", [])
+        return candidates[0] if candidates else None
+
+    def get_place_details(self, place_id: str) -> Dict[str, Any]:
+        """
+        Fetch detailed information about a business by Place ID.
+        :param place_id: Google Maps Place ID
+        :return: Place details as a dictionary
+        """
+        # Add retry with exponential backoff
+        for attempt in range(3):
+            try:
+                results = self.client.place(
+                    place_id=place_id,
+                    fields=[
+                        "place_id", "name", "business_status", "formatted_address",
+                        "formatted_phone_number", "international_phone_number",
+                        "geometry", "opening_hours", "user_ratings_total", "type",
+                        "website", "rating"
+                    ]
+                )
+                return results.get("result", {})
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                else:
+                    raise e
+        return {}
+    
+    def enrich_with_google(self, yelp_business: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich a Yelp business dictionary with Google Places API data.
+        Preserves Yelp fields, fills missing ones from Google, and stores
+        extras under `google_enrichment`.
+        """
+        name = yelp_business.get("name")
+        location = yelp_business.get("location", {})
+        coords = yelp_business.get("coordinates", {})
+        city = location.get("city")
+        state = location.get("state")
+
+        query = f"{name}, {city}, {state}" if city and state else name
+        lat, lng = coords.get("latitude"), coords.get("longitude")
+
+        google_place = None
+        try:
+            if lat and lng:
+                results = self.client.places(query=query, location=(lat, lng))
+            else:
+                results = self.client.places(query=query)
+            candidates = results.get("results", [])
+            google_place = candidates[0] if candidates else None
+        except Exception:
+            google_place = None
+
+        if not google_place:
+            return yelp_business
+
+        place_id = google_place.get("place_id")
+        details = self.get_place_details(place_id) if place_id else {}
+
+        enriched = yelp_business.copy()
+        google_enrichment: Dict[str, Any] = {}
+
+        # Merge fields if missing
+        merge_fields = [
+            "formatted_address", "formatted_phone_number", "international_phone_number",
+            "geometry", "opening_hours", "user_ratings_total", "type", "business_status", "website", "rating"
+        ]
+
+        for field in merge_fields:
+            if field in details:
+                if not enriched.get(field):
+                    enriched[field] = details[field]
+                else:
+                    google_enrichment[field] = details[field]
+
+        # Always store Google identifiers and extras
+        google_enrichment["place_id"] = details.get("place_id")
+        google_enrichment["name"] = details.get("name")
+        enriched["google_enrichment"] = google_enrichment
+
+        return enriched
+
+    def enrich_batch(self, businesses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Enrich a batch of Yelp businesses using Google Places API."""
+        return [self.enrich_with_google(business) for business in businesses]
+
+
+# Example usage (to be removed or placed in tests)
+if __name__ == "__main__":
+    client = GoogleClient()
+    place = client.search_place("The Fig Tree Restaurant", "Charlotte, NC")
+    if place:
+        details = client.get_place_details(place["place_id"])
+        print(details)
