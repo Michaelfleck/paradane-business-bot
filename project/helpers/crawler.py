@@ -1,7 +1,7 @@
 import asyncio
 import re
 from typing import List, Dict, Tuple, Optional
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urlunparse, urljoin
 
 from playwright.async_api import async_playwright
 
@@ -19,6 +19,36 @@ def normalize_homepage_url(url: str) -> str:
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
         return url
+    except Exception:
+        return url
+
+
+def normalize_url(url: str) -> str:
+    """
+    Normalize URLs to avoid duplicates like https://site.com and https://site.com/
+    Rules:
+    - Strip trailing slash unless it's the root
+    - Lowercase the scheme and hostname
+    - Remove fragments
+    """
+    try:
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        netloc = parsed.netloc.lower()
+        path = parsed.path or "/"
+
+        # Remove default ports
+        if netloc.endswith(":80") and scheme == "http":
+            netloc = netloc[:-3]
+        if netloc.endswith(":443") and scheme == "https":
+            netloc = netloc[:-4]
+
+        # Normalize root vs trailing slash
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
+
+        normalized = urlunparse((scheme, netloc, path, "", "", ""))
+        return normalized
     except Exception:
         return url
 
@@ -52,9 +82,12 @@ class WebsiteCrawler:
                         ".css", ".js", ".json", ".xml"
                     ]):
                         continue
-                    if cleaned not in self.visited:
-                        self.visited.add(cleaned)
-                        links.append(cleaned)
+
+                    normalized = normalize_url(cleaned)
+
+                    if normalized not in self.visited:
+                        self.visited.add(normalized)
+                        links.append(normalized)
                         if len(links) >= self.max_links:
                             break
 
@@ -68,8 +101,9 @@ class WebsiteCrawler:
         all_links: List[str] = []
 
         # Always include root url
-        self.visited.add(start_url)
-        all_links.append(start_url)
+        root = normalize_url(start_url)
+        self.visited.add(root)
+        all_links.append(root)
 
         # Fetch subpage links only from the root (depth=1)
         sub_links = await self.fetch_links(start_url)
