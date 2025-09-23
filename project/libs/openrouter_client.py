@@ -58,7 +58,8 @@ def summarize_page(url: str, content: str) -> str:
         return ""
 
     system_instruction = (
-        "You write compact, human-sounding, one-sentence summaries of webpages. "
+        "You write one-sentence summaries of webpages stating what it is about. "
+        "Focus only on the main subject or purpose of the page. "
         "Prefer concrete details over fluff. "
         "Avoid marketing language and avoid lists. "
         "Output exactly one sentence without quotes."
@@ -67,7 +68,7 @@ def summarize_page(url: str, content: str) -> str:
     words = re.findall(r"\w+", content)
     cleaned_content = " ".join(words)
     user_prompt = (
-        "Summarize the following in one natural sentence based on the URL and content below.\n\n"
+        "Summarize the following based on the URL and content below.\n\n"
         f"URL: {url}\n"
         f"Content: {cleaned_content}"
     )
