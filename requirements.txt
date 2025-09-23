@@ -1,2 +1,5 @@
 googlemaps
 supabase
+playwright
+openai
+psycopg2

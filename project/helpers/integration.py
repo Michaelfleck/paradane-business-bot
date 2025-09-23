@@ -3,6 +3,8 @@ import logging
 from project.libs.yelp_client import YelpClient
 from project.libs.google_client import GoogleClient
 from project.libs.supabase_client import get_client, ensure_table_exists, _businesses_table_schema
+from datetime import datetime, timedelta, timezone
+from project.helpers.storage import StorageClient
 
 
 class BusinessIntegrator:
@@ -13,6 +15,7 @@ class BusinessIntegrator:
     def __init__(self):
         self.yelp_client = YelpClient()
         self.google_client = GoogleClient()
+        self.storage = StorageClient()
         # Table creation should be handled via migrations; removed runtime creation attempt
 
     def get_restaurants_in_charlotte(self, limit: int = 10, min_pages: int = 1, max_pages: int = 10) -> List[Dict[str, Any]]:
@@ -98,7 +101,14 @@ def normalize_for_supabase(business: dict) -> dict:
 
     normalized = {}
     for field in schema_fields:
-        normalized[field] = business.get(field) if field in business else None
+        if field == "hours":
+            normalized[field] = (
+                business.get("hours")
+                if "hours" in business
+                else business.get("business_hours")
+            )
+        else:
+            normalized[field] = business.get(field) if field in business else None
 
     return normalized
 

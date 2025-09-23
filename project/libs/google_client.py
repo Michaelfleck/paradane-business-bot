@@ -114,6 +114,19 @@ class GoogleClient:
     def enrich_batch(self, businesses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Enrich a batch of Yelp businesses using Google Places API."""
         return [self.enrich_with_google(business) for business in businesses]
+    
+    @staticmethod
+    def extract_business_website_from_google(google_enrichment: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract the website field from Google enrichment JSON.
+        """
+        from project.helpers.crawler import normalize_homepage_url
+
+        if google_enrichment and isinstance(google_enrichment, dict):
+            url = google_enrichment.get("website")
+            if url:
+                return normalize_homepage_url(url)
+        return None
 
 
 # Example usage (to be removed or placed in tests)

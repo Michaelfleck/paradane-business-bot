@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import requests
+import certifi
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
@@ -37,7 +38,7 @@ class YelpClient:
             "categories": category,
             "limit": limit
         }
-        response = requests.get(url, headers=self.headers, params=params)
+        response = requests.get(url, headers=self.headers, params=params, verify=certifi.where())
         response.raise_for_status()
         return response.json().get("businesses", [])
 
@@ -51,6 +52,30 @@ class YelpClient:
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         return response.json()
+    
+    def extract_business_website(self, yelp_data: Dict[str, Any], google_enrichment: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """
+        Extract the business website URL.
+        Priority:
+          1. Yelp attributes -> menu_url
+          2. Google enrichment -> website
+        Returns None if not available.
+        """
+        try:
+            from project.helpers.crawler import normalize_homepage_url
+
+            attributes = yelp_data.get("attributes")
+            if isinstance(attributes, dict):
+                menu_url = attributes.get("menu_url")
+                if menu_url:
+                    return normalize_homepage_url(menu_url)
+            if google_enrichment and isinstance(google_enrichment, dict):
+                website = google_enrichment.get("website")
+                if website:
+                    return normalize_homepage_url(website)
+        except Exception:
+            return None
+        return None
 
 
 # Example usage (to be removed or placed in tests)

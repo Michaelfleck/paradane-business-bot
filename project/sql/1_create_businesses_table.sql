@@ -25,6 +25,16 @@ create table if not exists public.businesses (
     primary_category text,
     score text,
     distance text,
+    business_status text,
+    formatted_address text,
+    formatted_phone_number text,
+    international_phone_number text,
+    geometry text,
+    opening_hours text,
+    user_ratings_total text,
+    type text,
+    website text,
+    rating text
 
     review_count integer,
     photo_count integer,
@@ -52,4 +62,5 @@ create table if not exists public.businesses (
     hours jsonb,
 
     created_at timestamp with time zone default timezone('utc'::text, now())
+    updated_at timestamp with time zone default timezone('utc'::text, now())
 );
