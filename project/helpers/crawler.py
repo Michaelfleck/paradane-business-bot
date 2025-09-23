@@ -4,7 +4,6 @@ from typing import List, Dict, Tuple, Optional
 from urllib.parse import urlparse, urlunparse, urljoin
 
 from playwright.async_api import async_playwright
-from project.helpers.seo_analyzer import analyze_html
 
 
 def normalize_homepage_url(url: str) -> str:
@@ -60,20 +59,47 @@ class WebsiteCrawler:
         self.visited = set()
 
     async def fetch_links(self, url: str) -> Dict:
-        """Render the page with Playwright and extract internal links + SEO analysis."""
+        """Render the page with Playwright and extract internal links (no SEO analysis here)."""
         domain = urlparse(url).netloc
         links = []
+
+        # Ensure url is string
+        if isinstance(url, dict):
+            url = url.get("url", "")
+        if not isinstance(url, str):
+            raise ValueError(f"Expected string for URL, got {type(url)}: {url}")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context()
             page = await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            import asyncio as _asyncio, logging as _logging
 
+            async def safe_goto(target_url: str) -> bool:
+                """Try to navigate with retries and fallback to http if https fails."""
+                for attempt in range(3):
+                    try:
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=360000)
+                        return True
+                    except Exception as e:
+                        _logging.error(f"Error navigating to {target_url} (attempt {attempt+1}/3): {e}")
+                        # If https failed due to connection reset, attempt http fallback once
+                        if target_url.startswith("https://") and "ERR_CONNECTION_RESET" in str(e):
+                            fallback = target_url.replace("https://", "http://", 1)
+                            _logging.warning(f"Retrying with HTTP fallback: {fallback}")
+                            target_url = fallback
+                        else:
+                            if attempt == 2:
+                                return False
+                        await _asyncio.sleep(2 * (attempt+1))
+                return False
+
+            success = await safe_goto(url)
+            if not success:
+                await browser.close()
+                raise RuntimeError(f"Failed to navigate to {url} after retries")
+ 
             html = await page.content()
-            seo_result = analyze_html(html)
-            seo_score = seo_result["score"]
-            seo_explanation = seo_result["explanation"]
 
             hrefs = await page.eval_on_selector_all("a", "elements => elements.map(e => e.href)")
 
@@ -102,12 +128,14 @@ class WebsiteCrawler:
         return {
             "url": url,
             "links": links,
-            "seo_score": seo_score,
-            "seo_explanation": seo_explanation,
         }
 
-    async def crawl(self, start_url: str) -> List[str]:
-        """Crawl depth=1 within the same domain starting from start_url, with max_links limit."""
+    async def crawl(self, start_url: str) -> List[Dict]:
+        """Crawl depth=1 within the same domain starting from start_url, with max_links limit.
+        
+        Returns:
+            List[Dict]: A list of dicts like {"url": <str>, "links": [<str>, ...]} including the root result.
+        """
         self.visited = set()
         all_links: List[str] = []
 

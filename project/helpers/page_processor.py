@@ -1,7 +1,7 @@
 import re
 from typing import Dict, Any, Optional
 import logging
-from project.libs.openrouter_client import classify_page as or_classify_page, summarize_page as or_summarize_page
+# Removed OpenRouter client from PageProcessor to enforce separation of concerns
 
 logger = logging.getLogger(__name__)
 
@@ -18,22 +18,10 @@ class PageProcessor:
         # OpenRouter client is now centralized in openrouter_client.py
         self.business_domain = business_domain
 
-    def classify_page(self, url: str, summary: str) -> str:
-        """Classify page type using OpenRouter.
-        Note: Pass the summary from summarize_page externally."""
-        try:
-            return or_classify_page(url, summary)
-        except Exception as e:
-            logger.error(f"Error classifying page {url}: {e}", exc_info=True)
-            return "Other"
-
-    def summarize_page(self, url: str, content: str) -> str:
-        """Summarize page in one line using OpenRouter."""
-        try:
-            return or_summarize_page(url, content)
-        except Exception as e:
-            logger.error(f"Error summarizing page {url}: {e}", exc_info=True)
-            return ""
+    # The following methods have been removed from PageProcessor:
+    # - classify_page
+    # - summarize_page
+    # These now live in the enrichment stage of the pipeline.
 
     def extract_emails(self, content: str) -> Optional[str]:
         """Extract all email addresses, prioritizing same-domain, returned as comma-separated string."""

@@ -29,22 +29,26 @@ def classify_page(url: str, summary: str) -> str:
     )
     user_prompt = f"URL: {url}\nSummary: {summary}"
 
-    try:
-        resp = client.chat.completions.create(
-            model="meta-llama/llama-3.3-70b-instruct",
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=5,
-        )
-        classification = resp.choices[0].message.content.strip()
-        if " " in classification or "\n" in classification or not classification.isalpha():
-            return "Other"
-        return classification
-    except Exception as e:
-        logger.error(f"Error classifying page {url}: {e}", exc_info=True)
-        return "Other"
+    import time
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-3.3-70b-instruct",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=5,
+            )
+            classification = resp.choices[0].message.content.strip()
+            if " " in classification or "\n" in classification or not classification.isalpha():
+                return "Other"
+            return classification
+        except Exception as e:
+            logger.error(f"Error classifying page {url} (attempt {attempt+1}/3): {e}", exc_info=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    return "Other"
 
 
 def summarize_page(url: str, content: str) -> str:
@@ -61,19 +65,23 @@ def summarize_page(url: str, content: str) -> str:
     cleaned_content = " ".join(words)
     user_prompt = f"URL: {url}\nContent: {cleaned_content}"
 
-    try:
-        resp = client.chat.completions.create(
-            model="meta-llama/llama-3.3-70b-instruct",
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=50,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"Error summarizing page {url}: {e}", exc_info=True)
-        return ""
+    import time
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-3.3-70b-instruct",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=50,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error summarizing page {url} (attempt {attempt+1}/3): {e}", exc_info=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    return ""
 
 
 def refine_explanation(raw_text: str) -> str:
@@ -88,17 +96,21 @@ def refine_explanation(raw_text: str) -> str:
     )
     user_prompt = f"SEO issues found:\n{raw_text}"
 
-    try:
-        resp = client.chat.completions.create(
-            model="meta-llama/llama-3.3-70b-instruct",
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=150,
-        )
-        refined = resp.choices[0].message.content.strip()
-        return refined if refined else raw_text
-    except Exception as e:
-        logger.error(f"Error refining explanation via OpenRouter: {e}", exc_info=True)
-        return raw_text
+    import time
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-3.3-70b-instruct",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=150,
+            )
+            refined = resp.choices[0].message.content.strip()
+            return refined if refined else raw_text
+        except Exception as e:
+            logger.error(f"Error refining explanation via OpenRouter (attempt {attempt+1}/3): {e}", exc_info=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    return raw_text

@@ -103,6 +103,47 @@ def analyze_html(html: str) -> dict:
             score -= 3
             issues.append(f"Robots meta not best practice: '{content}'.")
 
+    # Extra checks for more detailed analysis
+    # Word count in body
+    body = soup.find("body")
+    if body:
+        words = body.get_text(separator=" ").split()
+        word_count = len(words)
+        if word_count < 300:
+            score -= 5
+            issues.append(f"Low word count ({word_count}, recommended 300+).")
+
+    # Check H2 presence
+    if not soup.find("h2"):
+        score -= 3
+        issues.append("Missing <h2> tags for content structure.")
+
+    # Favicon
+    favicon = soup.find("link", rel=lambda v: v and "icon" in v.lower())
+    if not favicon:
+        score -= 2
+        issues.append("Missing favicon link.")
+
+    # Meta keywords
+    meta_keywords = soup.find("meta", attrs={"name": "keywords"})
+    if meta_keywords:
+        issues.append("Meta keywords tag found (deprecated, should be removed).")
+
+    # Structured data (JSON-LD)
+    ld_json = soup.find("script", type="application/ld+json")
+    if not ld_json:
+        score -= 3
+        issues.append("Missing structured data (JSON-LD).")
+
+    # Text-to-HTML ratio
+    text_len = len(body.get_text(" ", strip=True)) if body else 0
+    html_len = len(html)
+    if html_len > 0:
+        ratio = (text_len / html_len) * 100
+        if ratio < 10:
+            score -= 5
+            issues.append(f"Low text-to-HTML ratio ({ratio:.1f}%).")
+
     # Clamp score between 0 and 100
     score = max(0, min(100, score))
 
