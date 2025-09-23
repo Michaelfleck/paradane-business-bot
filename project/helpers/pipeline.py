@@ -44,8 +44,8 @@ class BusinessPipeline:
                     await browser.close()
 
                 # Process page
-                page_type = self.processor.classify_page(link, content)
                 summary = self.processor.summarize_page(link, content)
+                page_type = self.processor.classify_page(link, summary)
                 email = self.processor.extract_emails(content)
                 metrics = self.pagespeed.analyze_page(link)
 

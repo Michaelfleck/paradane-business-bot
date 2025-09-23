@@ -19,16 +19,17 @@ class PageProcessor:
         self.client = OpenAI(api_key=openrouter_api_key, base_url="https://openrouter.ai/api/v1")
         self.business_domain = business_domain
 
-    def classify_page(self, url: str, content: str) -> str:
-        """Classify page type using OpenRouter."""
+    def classify_page(self, url: str, summary: str) -> str:
+        """Classify page type using OpenRouter.
+        Note: Pass the summary from summarize_page externally."""
         system_instruction = (
             "You are a strict page classifier. "
             "Your task is to classify a webpage into exactly one of the following categories: "
-            "Homepage, About, Contact, Menu, Press, Blog, Article, Product, etc. "
+            "Homepage, About, Contact, Menu, Press, Blog, Article, Product, Other, etc. "
             "Rules: "
             "1. Respond with ONLY one word, no explanation. "
         )
-        user_prompt = f"URL: {url}\nContent excerpt: {content[:500]}"
+        user_prompt = f"URL: {url}\nSummary: {summary}"
         try:
             resp = self.client.chat.completions.create(
                 model="meta-llama/llama-3.3-70b-instruct",
@@ -55,7 +56,10 @@ class PageProcessor:
             "Focus on the main subject or purpose of the page (e.g., 'About us page for a XYZ restaurant', "
             "'E-commerce product page for sneakers', 'News article about AI regulations')."
         )
-        user_prompt = f"URL: {url}\nContent excerpt: {content[:1000]}"
+        # Clean content: keep only words
+        words = re.findall(r"\w+", content)
+        cleaned_content = " ".join(words)
+        user_prompt = f"URL: {url}\nContent: {cleaned_content}"
         try:
             resp = self.client.chat.completions.create(
                 model="meta-llama/llama-3.3-70b-instruct",
