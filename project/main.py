@@ -64,7 +64,21 @@ def main():
     pagespeed_api_key = os.getenv("PAGESPEED_API_KEY")
     db_url = os.getenv("DATABASE_URL")
 
+    import os
+
     async def run_all_pipelines():
+        # Concurrency limiter based on CPU heuristic
+        max_concurrency = min(32, (os.cpu_count() or 1) + 4)
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def run_with_limit(biz, pipeline):
+            async with semaphore:
+                try:
+                    return await pipeline.run()
+                except Exception as e:
+                    logging.error(f"Pipeline failed for {biz.get('id')}: {e}")
+                    return e
+
         tasks = []
         for biz in enriched:
             biz_id = biz.get("id")
@@ -81,7 +95,7 @@ def main():
                     business_id=biz_id,
                     business_url=website
                 )
-                tasks.append(pipeline.run())
+                tasks.append(run_with_limit(biz, pipeline))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for biz, result in zip(enriched, results):
