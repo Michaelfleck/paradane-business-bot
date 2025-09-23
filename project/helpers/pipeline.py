@@ -52,7 +52,8 @@ class BusinessPipeline:
                             for attempt in range(3):
                                 try:
                                     await page.goto(target_url, wait_until="domcontentloaded", timeout=360000)
-                                    return await page.inner_text("body")
+                                    # Return full HTML (head + body) so SEO analyzer can see meta tags, title, etc.
+                                    return await page.content()
                                 except Exception as e:
                                     _logging.error(f"Error navigating to {target_url} (attempt {attempt+1}/3): {e}")
                                     if target_url.startswith("https://") and "ERR_CONNECTION_RESET" in str(e):
@@ -85,8 +86,8 @@ class BusinessPipeline:
                 seo = analyze_html(content)
                 print("[DEBUG] Finished SEO Analyzer")
 
-                # Run PageSpeed
-                metrics = await self.pagespeed.analyze_page(url)
+                # Run PageSpeed (synchronous call, no await needed)
+                metrics = self.pagespeed.analyze_page(url)
                 print("[DEBUG] Finished PageSpeed")
 
                 # Merge results

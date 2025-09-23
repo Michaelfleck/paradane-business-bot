@@ -1,5 +1,4 @@
 from bs4 import BeautifulSoup
-from project.libs.openrouter_client import refine_explanation
 
 
 def analyze_html(html: str) -> dict:
@@ -15,6 +14,19 @@ def analyze_html(html: str) -> dict:
             "explanation": str (summary of issues/warnings)
         }
     """
+    # Guard against non-string or empty HTML to avoid false "all missing" results
+    if not isinstance(html, str):
+        try:
+            html = html.decode("utf-8", errors="ignore")  # handle bytes-like input
+        except Exception:
+            html = ""
+    if not html.strip():
+        # Explicitly return minimal score and single issue for clarity
+        return {
+            "score": 0,
+            "explanation": "Empty or invalid HTML input.",
+        }
+
     soup = BeautifulSoup(html, "html.parser")
     score = 100
     issues = []
@@ -147,10 +159,10 @@ def analyze_html(html: str) -> dict:
     # Clamp score between 0 and 100
     score = max(0, min(100, score))
 
+    # Keep explanation concise (no external refinement)
     explanation = "; ".join(issues) if issues else "All key SEO checks passed."
-    refined = refine_explanation(explanation)
 
     return {
         "score": score,
-        "explanation": refined,
+        "explanation": explanation,
     }
