@@ -1,4 +1,55 @@
 from bs4 import BeautifulSoup
+from typing import Optional
+
+# Optional, graceful dependencies
+try:
+    import trafilatura  # type: ignore
+except Exception:
+    trafilatura = None  # type: ignore
+
+try:
+    from wordfreq import tokenize as wf_tokenize  # type: ignore
+except Exception:
+    wf_tokenize = None  # type: ignore
+
+
+def _extract_main_text(html: str, soup: BeautifulSoup) -> str:
+    """
+    Prefer high-quality readable text extraction (trafilatura),
+    falling back to BeautifulSoup body text when unavailable.
+    """
+    if trafilatura is not None:
+        try:
+            extracted = trafilatura.extract(
+                html,
+                include_tables=False,
+                include_comments=False,
+                favor_precision=True,
+            )
+            if extracted and extracted.strip():
+                return extracted.strip()
+        except Exception:
+            # Fall back below on any extraction error
+            pass
+
+    # Fallback: soup body text
+    body = soup.find("body")
+    return body.get_text(" ", strip=True) if body else ""
+
+
+def _count_words(text: str) -> int:
+    """
+    Tokenize text robustly. Use wordfreq when available; otherwise fallback to whitespace split.
+    """
+    if not text:
+        return 0
+    if wf_tokenize is not None:
+        try:
+            tokens = wf_tokenize(text, simplify=True)
+            return len(tokens)
+        except Exception:
+            pass
+    return len(text.split())
 
 
 def analyze_html(html: str) -> dict:
@@ -10,7 +61,7 @@ def analyze_html(html: str) -> dict:
 
     Returns:
         dict: {
-            "score": int (0–100),
+            "score": int (0-100),
             "explanation": str (summary of issues/warnings)
         }
     """
@@ -38,9 +89,9 @@ def analyze_html(html: str) -> dict:
         issues.append("Missing <title> tag.")
     else:
         title_length = len(title_tag.text.strip())
-        if title_length < 50 or title_length > 60:
+        if title_length < 50 or title_length > 75:
             score -= 5
-            issues.append(f"<title> length is {title_length} chars (ideal 50-60).")
+            issues.append(f"Title length is {title_length} chars (ideal 50-75).")
 
     # Meta description
     description = soup.find("meta", attrs={"name": "description"})
@@ -116,14 +167,12 @@ def analyze_html(html: str) -> dict:
             issues.append(f"Robots meta not best practice: '{content}'.")
 
     # Extra checks for more detailed analysis
-    # Word count in body
-    body = soup.find("body")
-    if body:
-        words = body.get_text(separator=" ").split()
-        word_count = len(words)
-        if word_count < 300:
-            score -= 5
-            issues.append(f"Low word count ({word_count}, recommended 300+).")
+    # Word count using robust extraction + tokenization
+    main_text = _extract_main_text(html, soup)
+    word_count = _count_words(main_text)
+    if word_count < 300:
+        score -= 5
+        issues.append(f"Low word count ({word_count}, recommended 300+).")
 
     # Check H2 presence
     if not soup.find("h2"):
@@ -148,7 +197,7 @@ def analyze_html(html: str) -> dict:
         issues.append("Missing structured data (JSON-LD).")
 
     # Text-to-HTML ratio
-    text_len = len(body.get_text(" ", strip=True)) if body else 0
+    text_len = len(main_text)
     html_len = len(html)
     if html_len > 0:
         ratio = (text_len / html_len) * 100
