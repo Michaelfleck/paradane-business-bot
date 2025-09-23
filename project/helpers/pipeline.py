@@ -2,6 +2,7 @@ import asyncio
 import os
 import time
 import concurrent.futures
+import re
 from typing import Dict, Any, List, Optional
 
 from project.helpers.crawler import WebsiteCrawler
@@ -79,6 +80,15 @@ class BusinessPipeline:
         return task
 
     async def run(self):
+        # Skip processing if we've processed pages for this business within last 24 hours
+        try:
+            if self.storage.business_pages_recently_updated(self.business_id):
+                print(f"[INFO] Skipping page processing for {self.business_id}: processed within last 24 hours")
+                return
+        except Exception:
+            # Non-fatal; continue best-effort
+            pass
+
         link_results: List[Dict] = await self.crawler.crawl(self.business_url)
 
         async def process_link(link_data: Dict):
@@ -125,8 +135,30 @@ class BusinessPipeline:
                 email = self.processor.extract_emails(content)
                 print("[DEBUG] Finished PageProcessor")
 
-                # Content enrichment stage
-                summary = or_summarize_page(url, content)
+                # Prepare body-only HTML for model enrichment (keep full HTML for SEO/email)
+                body_html = content
+                try:
+                    # Fast path: regex extract inner content of <body>…</body>
+                    m = re.search(r"<body[^>]*>([\\s\\S]*?)</body>", content, re.IGNORECASE)
+                    if m:
+                        body_html = m.group(1)
+                    else:
+                        # Fallback to BeautifulSoup if available for robustness
+                        try:
+                            from bs4 import BeautifulSoup  # type: ignore
+                            soup = BeautifulSoup(content, "html.parser")
+                            if soup and soup.body:
+                                # Use the body tag including attributes to preserve structure
+                                body_html = str(soup.body)
+                        except Exception:
+                            # If BeautifulSoup not available or parsing fails, keep original content
+                            pass
+                except Exception:
+                    # On any unexpected parsing error, fall back to full content
+                    body_html = content
+
+                # Content enrichment stage (use body-only)
+                summary = or_summarize_page(url, body_html)
                 page_type = or_classify_page(url, summary)
                 print("[DEBUG] Finished Content Enrichment")
 

@@ -8,5 +8,6 @@ CREATE TABLE business_pages (
     page_speed_score INT,
     time_to_interactive_ms INT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(business_id, url)
 );

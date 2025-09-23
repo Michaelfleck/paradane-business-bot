@@ -39,6 +39,13 @@ class BusinessIntegrator:
         for biz in yelp_results:
             logging.info(f"Scraped business: {biz.get('name')} (id={biz.get('id')})")
 
+            # Guard: if business enrichment done within last 24h, skip details/enrichment
+            biz_id = biz.get("id")
+            if biz_id and self.storage.business_recently_updated(biz_id):
+                logging.info(f"Skipping enrichment for {biz_id}: updated within last 24 hours")
+                enriched_results.append({"yelp": biz, "google": {}})
+                continue
+
             # Fetch full Yelp business details
             try:
                 yelp_details = self.yelp_client.get_business_details(biz["id"])
@@ -50,6 +57,13 @@ class BusinessIntegrator:
             google_details = {}
             if google_info:
                 google_details = self.google_client.get_place_details(google_info["place_id"])
+
+            # Touch businesses.updated_at since we just reprocessed enrichment for this biz_id
+            if biz_id:
+                try:
+                    self.storage.touch_business_updated_at(biz_id)
+                except Exception:
+                    pass
 
             enriched_results.append({
                 "yelp": yelp_details,
