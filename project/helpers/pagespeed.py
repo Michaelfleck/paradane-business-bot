@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import requests
 from typing import Dict, Any, Optional
 
@@ -20,7 +21,7 @@ class PageSpeedClient:
         """
         Get PageSpeed analysis of a URL.
         Returns score and time-to-interactive in ms.
-        Retries the request up to 3 times on transient failures (network issues or 5xx).
+        Retries the request up to 3 times on transient failures (network issues, 5xx) and 429 rate limit.
         """
         params = {
             "url": url,
@@ -29,21 +30,23 @@ class PageSpeedClient:
         }
 
         last_err: Optional[Exception] = None
-        # Exponential backoff: 0.5s, 1s, 2s between attempts
+        data: Optional[Dict[str, Any]] = None
+        # Exponential backoff with jitter: 0.5s, 1s, 2s (+/- up to 200ms)
         for attempt in range(3):
             try:
                 response = requests.get(self.base_url, params=params, timeout=360)
-                # Only retry on 5xx. For 4xx, raise immediately.
-                if 500 <= response.status_code < 600:
-                    raise requests.HTTPError(f"{response.status_code} Server Error", response=response)
+                status = response.status_code
+                # Treat 5xx and 429 as retryable
+                if status == 429 or 500 <= status < 600:
+                    raise requests.HTTPError(f"{status} Retryable Error", response=response)
+                # For other statuses, raise_for_status handles non-2xx.
                 response.raise_for_status()
                 data = response.json()
                 break
             except requests.HTTPError as http_err:
-                # If it's a 4xx, don't retry.
                 status = getattr(getattr(http_err, "response", None), "status_code", None)
+                # If it's a 4xx other than 429, don't retry.
                 if status is not None and 400 <= status < 500 and status != 429:
-                    # Surface client errors immediately (invalid key, bad request, etc.), except 429 which is retryable.
                     raise
                 last_err = http_err
             except (requests.ConnectionError, requests.Timeout) as net_err:
@@ -53,7 +56,9 @@ class PageSpeedClient:
                 last_err = e
 
             if attempt < 2:
-                delay = 0.5 * (2 ** attempt)
+                base_delay = 0.5 * (2 ** attempt)
+                jitter = random.uniform(-0.2, 0.2)
+                delay = max(0.1, base_delay + jitter)
                 time.sleep(delay)
             else:
                 # Exhausted retries
@@ -61,7 +66,7 @@ class PageSpeedClient:
                     raise last_err
                 raise RuntimeError("Unknown error calling PageSpeed API with no exception captured.")
 
-        lighthouse = data.get("lighthouseResult", {})
+        lighthouse = (data or {}).get("lighthouseResult", {})
         categories = lighthouse.get("categories", {})
         performance = categories.get("performance", {})
         score = int(performance.get("score", 0) * 100) if performance.get("score") is not None else None
