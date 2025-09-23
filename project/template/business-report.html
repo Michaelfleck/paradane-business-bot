@@ -21,14 +21,16 @@
           <li>The business coordinates are <b>{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG}</b>.</li>
           <li>The price range, as shown on Yelp, is <b>{BUSINESS_PRICE}</b>.</li>
           <li>The business has a total of <b>{BUSINESS_YELP_TOTAL_REVIEWS}</b> reviews on Yelp and <b>{BUSINESS_GOOGLE_PLACE_TOTAL_REVIEWS}</b> reviews on Google Place.</li>
-          <li>The business is rated <b>{BUSINESS_YELP_RATING}/5</b> on Yelp.</li>
-          <li>The current status is <b>{BUSINESS_STATUS}</b>.</li>
+          <li>The business is rated <b>{BUSINESS_YELP_RATING}/5</b> on Yelp and <b>{BUSINESS_GOOGLE_PLACE_RATING}/5</b> on Google Place.</li>
+          <li>Business status is <b>{BUSINESS_STATUS}</b>.</li>
           <li>The listed category/categories are: <b>{BUSINESS_CATEGORIES}</b>.</li>
           <li>The business opening hours are: <b>{BUSINESS_OPEN_DAYS}</b>.</li>
         </ul>
       </div>
-      <div class="relative bg-zinc-100 rounded-xl overflow-hidden min-h-52 w-full">
-        <div class="absolute top-4 left-4 text-xs text-[#00489c]/50">Map Image - {BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG}</div>
+      <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden min-h-52 w-full">
+        <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50">
+          <div class="mx-auto text-xs text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG} - {BUSINESS_NAME}</div>
+        </div>
         <div class="absolute inset-0">
           <img class="w-full h-full object-cover object-center" src="{BUSINESS_MAP_IMAGE}" border="0" />
         </div>
@@ -41,7 +43,7 @@
     <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Source</div>
     <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5 text-sm">
       <li><b>Website:</b> <a href="{BUSINESS_WEBSITE_URL}">{BUSINESS_WEBSITE_URL}</a></li>
-      <li><b>Yelp:</b> <a href="{BUSINESS_WEBSITE_URL}">{BUSINESS_YELP_URL}</a></li>
+      <li><b>Yelp:</b> <a href="{BUSINESS_YELP_URL}">{BUSINESS_YELP_URL}</a></li>
       <li><b>Google Place:</b> <a href="{BUSINESS_GOOGLE_PLACE_URL}">{BUSINESS_GOOGLE_PLACE_URL}</a></li>
     </ul>
   </div>
@@ -50,7 +52,7 @@
   <div class="flex flex-col">
     <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Contact Information</div>
     <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5 text-sm">
-      <li><b>Email:</b> {BUSINESS_EMAILS}</li>
+      <li><b>Email(s):</b> {BUSINESS_EMAILS}</li>
       <li><b>Phone:</b> {BUSINESS_PHONE}</li>
       <li><b>Web-Page:</b> <a href="{BUSINESS_CONTACT_PAGE[INDEX]_URL}">{BUSINESS_CONTACT_PAGE[INDEX]_URL}</a></li>
     </ul>

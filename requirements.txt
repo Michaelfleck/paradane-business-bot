@@ -6,3 +6,5 @@ psutil
 bs4
 trafilatura
 wordfreq
+phonenumbers
+phonenumbers
