@@ -22,10 +22,11 @@ def classify_page(url: str, summary: str) -> str:
         return "Other"
 
     system_instruction = (
-        "You are a strict page classifier. "
-        "Your task is to classify a webpage into exactly one of the following categories: "
-        "Homepage, About, Contact, Menu, Press, Blog, Article, Product, etc. "
-        "Rules: Respond with ONLY one word, no explanation."
+        "You are a strict website page classifier for local business sites. "
+        "Classify the page into exactly one canonical category from this set: "
+        "Homepage, About, Contact, Menu, Press, Blog, Article, Product, Services, Gallery, Events, Reservations, Careers, FAQ, Reviews, Location, Legal, Other. "
+        "Rules: Output only the single category word from the set. No punctuation, no sentences, no explanations. "
+        "If uncertain, output Other."
     )
     user_prompt = f"URL: {url}\nSummary: {summary}"
 
@@ -57,13 +58,22 @@ def summarize_page(url: str, content: str) -> str:
         return ""
 
     system_instruction = (
-        "You are a summarizer that produces concise one-line summaries stating what a webpage is about. "
-        "Avoid marketing speak; focus only on the main subject or purpose of the page."
+        "You write compact, human-sounding, one-sentence summaries of business webpages. "
+        "Do not start with generic frames like 'This webpage' or 'The page'. "
+        "Lead with the subject and what it offers. "
+        "Prefer concrete details over fluff. "
+        "Avoid marketing language and avoid lists. "
+        "Target 12-25 words. "
+        "Output exactly one sentence without quotes."
     )
     import re
     words = re.findall(r"\w+", content)
     cleaned_content = " ".join(words)
-    user_prompt = f"URL: {url}\nContent: {cleaned_content}"
+    user_prompt = (
+        "Summarize the page in one natural sentence.\n"
+        f"URL: {url}\n"
+        f"Content: {cleaned_content}"
+    )
 
     import time
     for attempt in range(3):
@@ -74,7 +84,7 @@ def summarize_page(url: str, content: str) -> str:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=50,
+                max_tokens=60,
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
@@ -82,35 +92,3 @@ def summarize_page(url: str, content: str) -> str:
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
     return ""
-
-
-def refine_explanation(raw_text: str) -> str:
-    """Refine SEO explanation with OpenRouter into concise professional summary"""
-    if not client:
-        return raw_text
-
-    system_instruction = (
-        "You are an SEO audit assistant. "
-        "Your job is to refine raw SEO audit findings into a concise, professional summary. "
-        "Avoid verbose phrasing. Focus on clarity and accuracy."
-    )
-    user_prompt = f"SEO issues found:\n{raw_text}"
-
-    import time
-    for attempt in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model="meta-llama/llama-3.3-70b-instruct",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=150,
-            )
-            refined = resp.choices[0].message.content.strip()
-            return refined if refined else raw_text
-        except Exception as e:
-            logger.error(f"Error refining explanation via OpenRouter (attempt {attempt+1}/3): {e}", exc_info=True)
-            if attempt < 2:
-                time.sleep(2 * (attempt + 1))
-    return raw_text

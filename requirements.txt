@@ -4,3 +4,5 @@ playwright
 openai
 psutil
 bs4
+trafilatura
+wordfreq

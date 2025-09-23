@@ -142,30 +142,56 @@ class BusinessPipeline:
                 email = self.processor.extract_emails(content)
                 print("[DEBUG] Finished PageProcessor")
 
-                # Prepare words-only content for model enrichment (strictly inner <body> content only)
+                # Prepare words-only English content for model enrichment (strictly inner <body>)
                 def _html_to_words_only(doc_html: str) -> str:
                     """
-                    Extract ONLY the inner body text using regex-only (no BeautifulSoup on full doc):
-                    - Strictly extract inner <body>…</body> if present
-                    - Remove scripts/styles/noscript/template/meta/link within that fragment
-                    - Decode entities and normalize whitespace
+                    Extract readable main text from inner <body> only, then keep English words:
+                    - Regex select inner body HTML fragment (avoids head/meta)
+                    - Use trafilatura to extract readable content (boilerplate removal)
+                    - Tokenize and keep alphabetic English words via wordfreq
+                    - Decode entities, normalize whitespace, and cap length
                     """
                     import re as _re
-                    # Strictly extract inner body; if no <body>, use full doc as last resort
+                    from html import unescape as _unescape
+
+                    # 1) Strictly get inner <body> fragment
                     m = _re.search(r"<body[^>]*>([\\s\\S]*?)</body>", doc_html, _re.IGNORECASE)
-                    fragment = m.group(1) if m else doc_html
+                    fragment_html = m.group(1) if m else doc_html
 
-                    # Strip disallowed blocks and tags from the fragment only
-                    fragment = _re.sub(r"<(script|style|noscript|template|meta|link)[\\s\\S]*?</\\1>", " ", fragment, flags=_re.IGNORECASE)
-                    # Remove any remaining tags
-                    fragment = _re.sub(r"<[^>]+>", " ", fragment)
+                    # 2) Use trafilatura to extract readable text from the fragment
+                    extracted_text = ""
+                    try:
+                        import trafilatura  # type: ignore
+                        extracted_text = trafilatura.extract(fragment_html) or ""
+                    except Exception:
+                        extracted_text = ""
 
-                    # Decode entities and normalize whitespace
-                    text = _html.unescape(fragment)
-                    text = _re.sub(r"[ \\t\\f\\v\\r\\n]+", " ", text).strip()
+                    # Fallback if trafilatura yields nothing: strip tags minimally
+                    if not extracted_text.strip():
+                        # Remove scripts/styles/noscript/template/meta/link within fragment
+                        fragment_no_blocks = _re.sub(r"<(script|style|noscript|template|meta|link)[\\s\\S]*?</\\1>", " ", fragment_html, flags=_re.IGNORECASE)
+                        extracted_text = _re.sub(r"<[^>]+>", " ", fragment_no_blocks)
 
-                    # Cap characters to protect context window
-                    MAX_CHARS = 60000
+                    # 3) Decode HTML entities and normalize whitespace
+                    extracted_text = _unescape(extracted_text)
+                    extracted_text = _re.sub(r"[ \\t\\f\\v\\r\\n]+", " ", extracted_text).strip()
+
+                    # 4) Keep only English words using wordfreq thresholds
+                    try:
+                        from wordfreq import zipf_frequency  # type: ignore
+                        tokens = extracted_text.split()
+                        english_words: List[str] = []
+                        for tok in tokens:
+                            # Keep alphabetic tokens and those recognized in English with any frequency
+                            if tok.isalpha() and zipf_frequency(tok, "en") > 0:
+                                english_words.append(tok)
+                        text = " ".join(english_words)
+                    except Exception:
+                        # If wordfreq unavailable at runtime for any reason, fall back to alphabetic words only
+                        text = " ".join([t for t in extracted_text.split() if t.isalpha()])
+
+                    # 5) Cap characters to protect context window
+                    MAX_CHARS = 10000
                     if len(text) > MAX_CHARS:
                         text = text[:MAX_CHARS]
                     return text
