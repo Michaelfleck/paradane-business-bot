@@ -4,6 +4,7 @@ import time
 import concurrent.futures
 import re
 from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone, timedelta
 
 from project.helpers.crawler import WebsiteCrawler
 from project.helpers.page_processor import PageProcessor
@@ -96,6 +97,11 @@ class BusinessPipeline:
                 url = link_data.get("url") if isinstance(link_data, dict) else str(link_data)
                 print(f"[DEBUG] Processing URL: {url}")
 
+                # Weekly gating: fetch existing row
+                existing = self.storage.get_business_page(self.business_id, url)
+                now = datetime.now(timezone.utc)
+                seven_days = timedelta(days=7)
+
                 # Render page content with bounded concurrency to avoid browser crashes
                 from playwright.async_api import async_playwright
                 async with self._render_semaphore:
@@ -157,10 +163,29 @@ class BusinessPipeline:
                     # On any unexpected parsing error, fall back to full content
                     body_html = content
 
-                # Content enrichment stage (use body-only)
-                summary = or_summarize_page(url, body_html)
-                page_type = or_classify_page(url, summary)
-                print("[DEBUG] Finished Content Enrichment")
+                # Decide whether to recompute AI fields (summary, page_type) based on weekly gating using updated_at
+                recompute_ai = True
+                if existing and existing.get("updated_at"):
+                    try:
+                        last_ts = str(existing["updated_at"]).replace("Z", "+00:00")
+                        last_updated = datetime.fromisoformat(last_ts)
+                        if last_updated.tzinfo is None:
+                            last_updated = last_updated.replace(tzinfo=timezone.utc)
+                        else:
+                            last_updated = last_updated.astimezone(timezone.utc)
+                        recompute_ai = (now - last_updated) >= seven_days
+                    except Exception:
+                        # If parsing fails, default to recompute to stay safe
+                        recompute_ai = True
+
+                if recompute_ai:
+                    summary = or_summarize_page(url, body_html)
+                    page_type = or_classify_page(url, summary)
+                    print("[DEBUG] Finished Content Enrichment (AI recomputed)")
+                else:
+                    summary = existing.get("summary") if existing else None
+                    page_type = existing.get("page_type") if existing else None
+                    print("[DEBUG] Skipped AI enrichment (preserved within 7 days)")
 
                 # Run SEO Analyzer separately (synchronous)
                 seo = analyze_html(content)
@@ -171,22 +196,29 @@ class BusinessPipeline:
                 metrics = await ps_task  # ps_task is an asyncio.Task; awaiting yields dict metrics
                 print("[DEBUG] Finished PageSpeed")
 
-                # Merge results
-                page_record = {
+                # Merge results. Only include AI fields when recomputed; otherwise preserve by passing existing values.
+                page_record: Dict[str, Any] = {
                     "business_id": self.business_id,
                     "url": url,
-                    "page_type": page_type,
-                    "summary": summary,
                     "email": email,
                     "page_speed_score": metrics.get("page_speed_score"),
                     "time_to_interactive_ms": metrics.get("time_to_interactive_ms"),
                     "seo_score": seo.get("score"),
                     "seo_explanation": seo.get("explanation"),
                 }
+                if recompute_ai:
+                    page_record["summary"] = summary
+                    page_record["page_type"] = page_type
+                else:
+                    # Preserve existing values by explicitly setting them if present; if None, do not include to avoid overwriting existing with null
+                    if summary is not None:
+                        page_record["summary"] = summary
+                    if page_type is not None:
+                        page_record["page_type"] = page_type
 
                 # Save only after all are ready
                 self.storage.insert_business_page(page_record)
-                print(f"[INFO] Upserted business_pages for {url}")
+                print(f"[INFO] Upserted business_pages for {url} (AI {'updated' if recompute_ai else 'preserved'})")
             except Exception as e:
                 print(f"Error processing URL={url}, link_data={link_data}: {e}")
 

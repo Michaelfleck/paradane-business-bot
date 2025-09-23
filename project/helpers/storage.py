@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from project.libs.supabase_client import get_client
 
 TWENTY_FOUR_HOURS = timedelta(hours=24)
+SEVEN_DAYS = timedelta(days=7)
 
 class StorageClient:
     def __init__(self):
@@ -93,11 +94,31 @@ class StorageClient:
             logging.warning(f"business_pages_recently_updated failed for {business_id}: {e}")
             return False
 
+    def get_business_page(self, business_id: str, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single business_pages row for (business_id, url).
+        Returns a dict with fields including updated_at or None if not found.
+        """
+        try:
+            resp = (
+                self.client.table("business_pages")
+                .select("business_id,url,summary,page_type,email,page_speed_score,time_to_interactive_ms,seo_score,seo_explanation,updated_at")
+                .eq("business_id", business_id)
+                .eq("url", url)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(resp, "data", None) or []
+            return rows[0] if rows else None
+        except Exception as e:
+            logging.warning(f"get_business_page failed for {business_id} {url}: {e}")
+            return None
+
     def insert_business_page(self, page: Dict[str, Any]):
         """
-        Insert a record into business_pages.
-        page dict must include at minimum: business_id, url, page_type, summary, email, page_speed_score, time_to_interactive_ms.
-        It may also include seo_score and seo_explanation if available.
+        Insert or update a record in business_pages via upsert.
+        page dict must include at minimum: business_id, url.
+        We intentionally allow selective fields: summary/page_type may be omitted to preserve prior values.
         """
         try:
             # Ensure updated_at is set to now (so upsert writes bump the timestamp)
