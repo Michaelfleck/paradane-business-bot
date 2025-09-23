@@ -64,25 +64,31 @@ def main():
     pagespeed_api_key = os.getenv("PAGESPEED_API_KEY")
     db_url = os.getenv("DATABASE_URL")
 
-    for biz in enriched:
-        biz_id = biz.get("id")
-        yelp_site = yelp_client.extract_business_website(biz, biz.get("google_enrichment"))
-        google_site = google_client.extract_business_website_from_google(biz.get("google_enrichment"))
-        website = yelp_site or google_site
+    async def run_all_pipelines():
+        tasks = []
+        for biz in enriched:
+            biz_id = biz.get("id")
+            yelp_site = yelp_client.extract_business_website(biz, biz.get("google_enrichment"))
+            google_site = google_client.extract_business_website_from_google(biz.get("google_enrichment"))
+            website = yelp_site or google_site
 
-        if website:
-            logging.info(f"Running pipeline for business {biz.get('name')} ({biz_id}) url={website}")
-            pipeline = BusinessPipeline(
-                openrouter_api_key=openrouter_api_key,
-                pagespeed_api_key=pagespeed_api_key,
-                db_url=db_url,
-                business_id=biz_id,
-                business_url=website
-            )
-            try:
-                asyncio.run(pipeline.run())
-            except Exception as e:
-                logging.error(f"Pipeline failed for {biz_id}: {e}")
+            if website:
+                logging.info(f"Running pipeline for business {biz.get('name')} ({biz_id}) url={website}")
+                pipeline = BusinessPipeline(
+                    openrouter_api_key=openrouter_api_key,
+                    pagespeed_api_key=pagespeed_api_key,
+                    db_url=db_url,
+                    business_id=biz_id,
+                    business_url=website
+                )
+                tasks.append(pipeline.run())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for biz, result in zip(enriched, results):
+            if isinstance(result, Exception):
+                logging.error(f"Pipeline failed for {biz.get('id')}: {result}")
+
+    asyncio.run(run_all_pipelines())
 
 
 if __name__ == "__main__":
