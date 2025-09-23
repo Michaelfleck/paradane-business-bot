@@ -6,13 +6,13 @@
       </a>
     </div>
     <div class="flex items-center gap-10">
-      <h1 class="flex items-center gap-1 text-sm font-bold text-zinc-800 sm:text-base md:text-lg">Business Report</h1>
+      <h1 class="flex items-center gap-1 text-base font-bold sm:text-lg md:text-xl text-[#00489c]/90">Report</h1>
     </div>
   </div>
 </div>
 <div class="px-5 md:px-10 py-10 pt-5">
   <div class="flex flex-col">
-    <h2 class="text-2xl font-bold text-[#00489c] block mb-5">Information</div>
+    <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Information</div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
       <div>
         <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5">
@@ -30,12 +30,15 @@
       </div>
       <div class="relative bg-zinc-100 rounded-xl overflow-hidden min-h-96 w-full">
         <div class="absolute top-4 left-4 text-xs text-[#00489c]/50">Map Image - {BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG}</div>
+        <div class="absolute inset-0">
+          <img class="w-full h-full object-cover object-center" src="{BUSINESS_MAP_IMAGE}" border="0" />
+        </div>
       </div>
     </div>
   </div>
   <div class="px-5 md:px-10 py-10 pt-5">
     <div class="flex flex-col">
-      <h2 class="text-2xl font-bold text-[#00489c] block mb-5">Source</div>
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Source</div>
         <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5">
           <li><b>Website:</b> <a href="{BUSINESS_WEBSITE_URL}">{BUSINESS_WEBSITE_URL}</a></li>
           <li><b>Yelp:</b> <a href="{BUSINESS_WEBSITE_URL}">{BUSINESS_YELP_URL}</a></li>
@@ -45,7 +48,7 @@
   </div>
   <div class="px-5 md:px-10 py-10 pt-5">
     <div class="flex flex-col">
-      <h2 class="text-2xl font-bold text-[#00489c] block mb-5">Website</div>
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">PageSpeed</div>
       <div
         class="relative flex flex-col w-full h-full overflow-hidden text-gray-700 bg-white shadow-md rounded-xl border border-zinc-100">
         <table class="w-full text-left table-auto min-w-max">
@@ -63,7 +66,7 @@
               </th>
               <th class="p-4 border-b border-gray-100 bg-blue-gray-50">
                 <p class="block font-sans text-sm antialiased font-normal leading-none text-blue-gray-900 opacity-70">
-                  PageSpeed Score
+                  Score
                 </p>
               </th>
               <th class="p-4 border-b border-gray-100 bg-blue-gray-50">
@@ -75,46 +78,27 @@
           </thead>
           <tbody>
             <tr>
-              <td class="p-4 border-b border-gray-50">
-                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  /
+              <td class="p-4 border-b border-gray-50 max-w-96">
+                <p class="block font-sans text-sm antialiased leading-normal text-blue-gray-900 truncate font-semibold text-[#00489c]">
+                  {BUSINESS_PAGE[INDEX]_URL}
+                </p>
+                <p class="mt-1 text-xs text-zinc-600">
+                  BUSINESS_PAGE[INDEX]_URL_SUMMARY}
                 </p>
               </td>
               <td class="p-4 border-b border-gray-50">
                 <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  Homepage
+                  BUSINESS_PAGE[INDEX]_URL_TYPE}
                 </p>
               </td>
               <td class="p-4 border-b border-gray-50">
                 <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  <span class="text-green-700">90</span> / 100
+                  BUSINESS_PAGE[INDEX]_URL_SCORE} / 100
                 </p>
               </td>
               <td class="p-4 border-b border-gray-50">
                 <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  1.4 sec
-                </p>
-              </td>
-            </tr>
-            <tr>
-              <td class="p-4 border-b border-gray-50">
-                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  /docs/html
-                </p>
-              </td>
-              <td class="p-4 border-b border-gray-50">
-                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  Documentation
-                </p>
-              </td>
-              <td class="p-4 border-b border-gray-50">
-                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  <span class="text-red-700">40</span> / 100
-                </p>
-              </td>
-              <td class="p-4 border-b border-gray-50">
-                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
-                  2.4 sec
+                  BUSINESS_PAGE[INDEX]_URL_LOAD_TIME} sec
                 </p>
               </td>
             </tr>
@@ -122,7 +106,58 @@
         </table>
       </div>
       <div class="mt-4 text-sm text-zinc-600">
-        If a website takes more than 3 seconds to load, the probability of a user abandoning the site increases by 32%. The PageSpeed score is generated using Google's PageSpeed Insight which determines the overall performance of the page.
+        If a website takes more than <b>3 seconds to load</b>, the probability of a user abandoning the site <b>increases by 32%</b>.
+      </div>
+    </div>
+  </div>
+  <div class="px-5 md:px-10 py-10 pt-5">
+    <div class="flex flex-col">
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">SEO</div>
+      <div
+        class="relative flex flex-col w-full h-full overflow-hidden text-gray-700 bg-white shadow-md rounded-xl border border-zinc-100">
+        <table class="w-full text-left table-auto min-w-max">
+          <thead>
+            <tr>
+              <th class="p-4 border-b border-gray-100 bg-blue-gray-50">
+                <p class="block font-sans text-sm antialiased font-normal leading-none text-blue-gray-900 opacity-70">
+                  Page URL
+                </p>
+              </th>
+              <th class="p-4 border-b border-gray-100 bg-blue-gray-50">
+                <p class="block font-sans text-sm antialiased font-normal leading-none text-blue-gray-900 opacity-70">
+                  Score
+                </p>
+              </th>
+              <th class="p-4 border-b border-gray-100 bg-blue-gray-50">
+                <p class="block font-sans text-sm antialiased font-normal leading-none text-blue-gray-900 opacity-70">
+                  Explanation
+                </p>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="p-4 border-b border-gray-50 max-w-96">
+                <p class="block font-sans text-sm antialiased leading-normal text-blue-gray-900 truncate font-semibold text-[#00489c]">
+                  {BUSINESS_PAGE[INDEX]_URL}
+                </p>
+              </td>
+              <td class="p-4 border-b border-gray-50">
+                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
+                  BUSINESS_PAGE[INDEX]_URL_SEO_SCORE} / 100
+                </p>
+              </td>
+              <td class="p-4 border-b border-gray-50 max-w-96">
+                <p class="block font-sans text-sm antialiased font-normal leading-normal text-blue-gray-900">
+                  BUSINESS_PAGE[INDEX]_URL_SEO_EXPLANATION}
+                </p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-4 text-sm text-zinc-600">
+        Google uses page speed as a <b>ranking factor</b>—slow websites risk <b>losing visibility</b> in search results.
       </div>
     </div>
   </div>

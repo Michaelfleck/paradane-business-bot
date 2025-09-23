@@ -61,6 +61,8 @@ class BusinessPipeline:
                     "email": email,
                     "page_speed_score": metrics["page_speed_score"],
                     "time_to_interactive_ms": metrics["time_to_interactive_ms"],
+                    "seo_score": metrics.get("seo_score"),
+                    "seo_explanation": metrics.get("seo_explanation"),
                 })
             except Exception as e:
                 print(f"Error processing {link}: {e}")

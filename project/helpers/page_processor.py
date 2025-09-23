@@ -1,8 +1,7 @@
 import re
-import requests
 from typing import Dict, Any, Optional
-from openai import OpenAI
 import logging
+from project.libs.openrouter_client import classify_page as or_classify_page, summarize_page as or_summarize_page
 
 logger = logging.getLogger(__name__)
 
@@ -16,60 +15,22 @@ class PageProcessor:
     """
 
     def __init__(self, openrouter_api_key: str, business_domain: str):
-        self.client = OpenAI(api_key=openrouter_api_key, base_url="https://openrouter.ai/api/v1")
+        # OpenRouter client is now centralized in openrouter_client.py
         self.business_domain = business_domain
 
     def classify_page(self, url: str, summary: str) -> str:
         """Classify page type using OpenRouter.
         Note: Pass the summary from summarize_page externally."""
-        system_instruction = (
-            "You are a strict page classifier. "
-            "Your task is to classify a webpage into exactly one of the following categories: "
-            "Homepage, About, Contact, Menu, Press, Blog, Article, Product, etc. "
-            "Rules: "
-            "1. Respond with ONLY one word, no explanation. "
-        )
-        user_prompt = f"URL: {url}\nSummary: {summary}"
         try:
-            resp = self.client.chat.completions.create(
-                model="meta-llama/llama-3.3-70b-instruct",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=5,
-            )
-            classification = resp.choices[0].message.content.strip()
-            # Ensure classification is strictly one word; otherwise, fallback to "Other"
-            if " " in classification or "\n" in classification or not classification.isalpha():
-                return "Other"
-            return classification
+            return or_classify_page(url, summary)
         except Exception as e:
             logger.error(f"Error classifying page {url}: {e}", exc_info=True)
             return "Other"
 
     def summarize_page(self, url: str, content: str) -> str:
         """Summarize page in one line using OpenRouter."""
-        system_instruction = (
-            "You are a summarizer that produces concise one-line summaries stating what a webpage is about. "
-            "Avoid flowery language, marketing-style descriptions, or redundant details. "
-            "Focus on the main subject or purpose of the page (e.g., 'About us page for a XYZ restaurant', "
-            "'E-commerce product page for sneakers', 'News article about AI regulations')."
-        )
-        # Clean content: keep only words
-        words = re.findall(r"\w+", content)
-        cleaned_content = " ".join(words)
-        user_prompt = f"URL: {url}\nContent: {cleaned_content}"
         try:
-            resp = self.client.chat.completions.create(
-                model="meta-llama/llama-3.3-70b-instruct",
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=50,
-            )
-            return resp.choices[0].message.content.strip()
+            return or_summarize_page(url, content)
         except Exception as e:
             logger.error(f"Error summarizing page {url}: {e}", exc_info=True)
             return ""

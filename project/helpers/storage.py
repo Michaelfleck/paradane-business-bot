@@ -10,7 +10,8 @@ class StorageClient:
     def insert_business_page(self, page: Dict[str, Any]):
         """
         Insert a record into business_pages.
-        page dict must include: business_id, url, page_type, summary, email, page_speed_score, time_to_interactive_ms
+        page dict must include at minimum: business_id, url, page_type, summary, email, page_speed_score, time_to_interactive_ms.
+        It may also include seo_score and seo_explanation if available.
         """
         try:
             response = (

@@ -4,6 +4,7 @@ from typing import List, Dict, Tuple, Optional
 from urllib.parse import urlparse, urlunparse, urljoin
 
 from playwright.async_api import async_playwright
+from project.helpers.seo_analyzer import analyze_html
 
 
 def normalize_homepage_url(url: str) -> str:
@@ -58,8 +59,8 @@ class WebsiteCrawler:
         self.max_links = max_links
         self.visited = set()
 
-    async def fetch_links(self, url: str) -> List[str]:
-        """Render the page with Playwright and extract internal links."""
+    async def fetch_links(self, url: str) -> Dict:
+        """Render the page with Playwright and extract internal links + SEO analysis."""
         domain = urlparse(url).netloc
         links = []
 
@@ -68,6 +69,11 @@ class WebsiteCrawler:
             context = await browser.new_context()
             page = await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+            html = await page.content()
+            seo_result = analyze_html(html)
+            seo_score = seo_result["score"]
+            seo_explanation = seo_result["explanation"]
 
             hrefs = await page.eval_on_selector_all("a", "elements => elements.map(e => e.href)")
 
@@ -92,8 +98,13 @@ class WebsiteCrawler:
                             break
 
             await browser.close()
-
-        return links
+ 
+        return {
+            "url": url,
+            "links": links,
+            "seo_score": seo_score,
+            "seo_explanation": seo_explanation,
+        }
 
     async def crawl(self, start_url: str) -> List[str]:
         """Crawl depth=1 within the same domain starting from start_url, with max_links limit."""
@@ -106,28 +117,29 @@ class WebsiteCrawler:
         all_links.append(root)
 
         # Fetch subpage links only from the root (depth=1)
-        sub_links = await self.fetch_links(start_url)
+        root_result = await self.fetch_links(start_url)
+        sub_links = root_result["links"]
 
         # Enforce 20-page cap (including root)
         sub_links = sub_links[: max(0, self.max_links - 1)]
 
         # Thread-safe collection of results
-        results: List[str] = []
+        results: List[Dict] = []
         lock = asyncio.Lock()
-
+ 
         async def fetch_and_store(url: str):
             try:
                 # Fetching but not following further links (depth=1 constraint)
-                _ = await self.fetch_links(url)
+                page_result = await self.fetch_links(url)
                 async with lock:
                     if len(all_links) + len(results) < self.max_links:
-                        results.append(url)
+                        results.append(page_result)
             except Exception:
                 # Ignore failures gracefully
                 pass
 
         # Run concurrent fetching
         await asyncio.gather(*[fetch_and_store(url) for url in sub_links])
-
+ 
         # Return combined (root + successfully fetched)
-        return all_links + results
+        return [root_result] + results
