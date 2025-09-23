@@ -142,53 +142,29 @@ class BusinessPipeline:
                 email = self.processor.extract_emails(content)
                 print("[DEBUG] Finished PageProcessor")
 
-                # Prepare words-only content for model enrichment (keep full HTML for SEO/email)
+                # Prepare words-only content for model enrichment (strictly inner <body> content only)
                 def _html_to_words_only(doc_html: str) -> str:
                     """
-                    Convert HTML to plain text suitable for LLM enrichment:
-                    - Prefer <body> content when present
-                    - Remove scripts/styles/noscript/template/meta/link
-                    - Decode entities
-                    - Normalize whitespace
-                    - Cap length to protect context window
+                    Extract ONLY the inner body text using regex-only (no BeautifulSoup on full doc):
+                    - Strictly extract inner <body>…</body> if present
+                    - Remove scripts/styles/noscript/template/meta/link within that fragment
+                    - Decode entities and normalize whitespace
                     """
-                    body_html_local = doc_html
-                    try:
-                        m = re.search(r"<body[^>]*>([\\s\\S]*?)</body>", doc_html, re.IGNORECASE)
-                        if m:
-                            body_html_local = m.group(1)
-                        else:
-                            try:
-                                from bs4 import BeautifulSoup  # type: ignore
-                                soup_b = BeautifulSoup(doc_html, "html.parser")
-                                if soup_b and soup_b.body:
-                                    body_html_local = str(soup_b.body)
-                            except Exception:
-                                pass
-                    except Exception:
-                        body_html_local = doc_html
+                    import re as _re
+                    # Strictly extract inner body; if no <body>, use full doc as last resort
+                    m = _re.search(r"<body[^>]*>([\\s\\S]*?)</body>", doc_html, _re.IGNORECASE)
+                    fragment = m.group(1) if m else doc_html
 
-                    # Prefer BeautifulSoup to strip tags robustly
-                    text = ""
-                    try:
-                        from bs4 import BeautifulSoup  # type: ignore
-                        soup2 = BeautifulSoup(body_html_local, "html.parser")
-                        for tag in soup2(["script", "style", "noscript", "template", "meta", "link"]):
-                            tag.decompose()
-                        # Use a space separator to keep words separated
-                        text = soup2.get_text(separator=" ", strip=True)
-                    except Exception:
-                        # Fallback regex stripping
-                        no_script = re.sub(r"<(script|style|noscript|template)[\\s\\S]*?</\\1>", " ", body_html_local, flags=re.IGNORECASE)
-                        text = re.sub(r"<[^>]+>", " ", no_script)
+                    # Strip disallowed blocks and tags from the fragment only
+                    fragment = _re.sub(r"<(script|style|noscript|template|meta|link)[\\s\\S]*?</\\1>", " ", fragment, flags=_re.IGNORECASE)
+                    # Remove any remaining tags
+                    fragment = _re.sub(r"<[^>]+>", " ", fragment)
 
-                    # Decode HTML entities
-                    text = _html.unescape(text)
+                    # Decode entities and normalize whitespace
+                    text = _html.unescape(fragment)
+                    text = _re.sub(r"[ \\t\\f\\v\\r\\n]+", " ", text).strip()
 
-                    # Normalize whitespace: collapse spaces/tabs/newlines to single spaces
-                    text = re.sub(r"[ \\t\\f\\v\\r\\n]+", " ", text).strip()
-
-                    # Optional: cap characters
+                    # Cap characters to protect context window
                     MAX_CHARS = 60000
                     if len(text) > MAX_CHARS:
                         text = text[:MAX_CHARS]
