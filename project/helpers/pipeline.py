@@ -3,6 +3,7 @@ import os
 import time
 import concurrent.futures
 import re
+import html as _html
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, timedelta
 
@@ -141,27 +142,59 @@ class BusinessPipeline:
                 email = self.processor.extract_emails(content)
                 print("[DEBUG] Finished PageProcessor")
 
-                # Prepare body-only HTML for model enrichment (keep full HTML for SEO/email)
-                body_html = content
-                try:
-                    # Fast path: regex extract inner content of <body>…</body>
-                    m = re.search(r"<body[^>]*>([\\s\\S]*?)</body>", content, re.IGNORECASE)
-                    if m:
-                        body_html = m.group(1)
-                    else:
-                        # Fallback to BeautifulSoup if available for robustness
-                        try:
-                            from bs4 import BeautifulSoup  # type: ignore
-                            soup = BeautifulSoup(content, "html.parser")
-                            if soup and soup.body:
-                                # Use the body tag including attributes to preserve structure
-                                body_html = str(soup.body)
-                        except Exception:
-                            # If BeautifulSoup not available or parsing fails, keep original content
-                            pass
-                except Exception:
-                    # On any unexpected parsing error, fall back to full content
-                    body_html = content
+                # Prepare words-only content for model enrichment (keep full HTML for SEO/email)
+                def _html_to_words_only(doc_html: str) -> str:
+                    """
+                    Convert HTML to plain text suitable for LLM enrichment:
+                    - Prefer <body> content when present
+                    - Remove scripts/styles/noscript/template/meta/link
+                    - Decode entities
+                    - Normalize whitespace
+                    - Cap length to protect context window
+                    """
+                    body_html_local = doc_html
+                    try:
+                        m = re.search(r"<body[^>]*>([\\s\\S]*?)</body>", doc_html, re.IGNORECASE)
+                        if m:
+                            body_html_local = m.group(1)
+                        else:
+                            try:
+                                from bs4 import BeautifulSoup  # type: ignore
+                                soup_b = BeautifulSoup(doc_html, "html.parser")
+                                if soup_b and soup_b.body:
+                                    body_html_local = str(soup_b.body)
+                            except Exception:
+                                pass
+                    except Exception:
+                        body_html_local = doc_html
+
+                    # Prefer BeautifulSoup to strip tags robustly
+                    text = ""
+                    try:
+                        from bs4 import BeautifulSoup  # type: ignore
+                        soup2 = BeautifulSoup(body_html_local, "html.parser")
+                        for tag in soup2(["script", "style", "noscript", "template", "meta", "link"]):
+                            tag.decompose()
+                        # Use a space separator to keep words separated
+                        text = soup2.get_text(separator=" ", strip=True)
+                    except Exception:
+                        # Fallback regex stripping
+                        no_script = re.sub(r"<(script|style|noscript|template)[\\s\\S]*?</\\1>", " ", body_html_local, flags=re.IGNORECASE)
+                        text = re.sub(r"<[^>]+>", " ", no_script)
+
+                    # Decode HTML entities
+                    text = _html.unescape(text)
+
+                    # Normalize whitespace: collapse spaces/tabs/newlines to single spaces
+                    text = re.sub(r"[ \\t\\f\\v\\r\\n]+", " ", text).strip()
+
+                    # Optional: cap characters
+                    MAX_CHARS = 60000
+                    if len(text) > MAX_CHARS:
+                        text = text[:MAX_CHARS]
+                    return text
+
+                words_only = _html_to_words_only(content)
 
                 # Decide whether to recompute AI fields (summary, page_type) based on weekly gating using updated_at
                 recompute_ai = True
@@ -179,7 +212,7 @@ class BusinessPipeline:
                         recompute_ai = True
 
                 if recompute_ai:
-                    summary = or_summarize_page(url, body_html)
+                    summary = or_summarize_page(url, words_only)
                     page_type = or_classify_page(url, summary)
                     print("[DEBUG] Finished Content Enrichment (AI recomputed)")
                 else:
