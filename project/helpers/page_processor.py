@@ -25,7 +25,7 @@ class PageProcessor:
         system_instruction = (
             "You are a strict page classifier. "
             "Your task is to classify a webpage into exactly one of the following categories: "
-            "Homepage, About, Contact, Menu, Press, Blog, Article, Product, Other, etc. "
+            "Homepage, About, Contact, Menu, Press, Blog, Article, Product, etc. "
             "Rules: "
             "1. Respond with ONLY one word, no explanation. "
         )
@@ -75,15 +75,16 @@ class PageProcessor:
             return ""
 
     def extract_emails(self, content: str) -> Optional[str]:
-        """Extract an email address, prioritizing same-domain."""
-        emails = re.findall(r"[\\w._%+-]+@[\\w.-]+\\.[a-zA-Z]{2,}", content)
+        """Extract all email addresses, prioritizing same-domain, returned as comma-separated string."""
+        emails = re.findall(r"[\w._%+-]+@[\w.-]+\.[a-zA-Z]{2,}", content)
         if not emails:
             return None
 
-        # Prioritize same domain
-        for email in emails:
-            if self.business_domain in email:
-                return email
+        # Deduplicate while preserving order
+        unique_emails = list(dict.fromkeys(emails))
 
-        # If external email(s), we could use OpenRouter to check ownership, but here we just return the first
-        return emails[0]
+        # Prioritize same domain by placing them first
+        same_domain = [email for email in unique_emails if self.business_domain and self.business_domain in email]
+        other_emails = [email for email in unique_emails if email not in same_domain]
+
+        return ",".join(same_domain + other_emails)
