@@ -22,9 +22,9 @@ def classify_page(url: str, summary: str) -> str:
         return "Other"
 
     system_instruction = (
-        "You are a strict website page classifier for local business sites. "
-        "Classify the page into exactly one canonical category from this set: "
-        "Homepage, About, Contact, Menu, Press, Blog, Article, Product, Services, Gallery, Events, Reservations, Careers, FAQ, Reviews, Location, Legal, Other. "
+        "You are a page classifier for sites. "
+        "Classify the page into exactly one canonical category term. "
+        "For example: Homepage, About, Contact, Menu, Press, Blog, Article, Product, Services, Gallery, Events, Reservations, Careers, FAQ, Reviews, Location, Legal, etc. "
         "Rules: Output only the single category word from the set. No punctuation, no sentences, no explanations. "
         "If uncertain, output Other."
     )
@@ -58,19 +58,16 @@ def summarize_page(url: str, content: str) -> str:
         return ""
 
     system_instruction = (
-        "You write compact, human-sounding, one-sentence summaries of business webpages. "
-        "Do not start with generic frames like 'This webpage' or 'The page'. "
-        "Lead with the subject and what it offers. "
+        "You write compact, human-sounding, one-sentence summaries of webpages. "
         "Prefer concrete details over fluff. "
         "Avoid marketing language and avoid lists. "
-        "Target 12-25 words. "
         "Output exactly one sentence without quotes."
     )
     import re
     words = re.findall(r"\w+", content)
     cleaned_content = " ".join(words)
     user_prompt = (
-        "Summarize the page in one natural sentence.\n"
+        "Summarize the following in one natural sentence based on the URL and content below.\n\n"
         f"URL: {url}\n"
         f"Content: {cleaned_content}"
     )
@@ -84,7 +81,7 @@ def summarize_page(url: str, content: str) -> str:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=60,
+                max_tokens=100,
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
