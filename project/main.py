@@ -67,13 +67,20 @@ def main():
     import os
 
     async def run_all_pipelines():
-        # Concurrency limiter based on CPU heuristic
-        max_concurrency = min(32, (os.cpu_count() or 1) + 4)
+        # Concurrency limiter based on CPU + available RAM
+        import psutil
+        est_browser_mem = 500 * 1024 * 1024  # ~500MB per browser
+        available_ram = psutil.virtual_memory().available
+        max_by_ram = max(1, (available_ram // est_browser_mem) // 2)
+        max_by_cpu = max(1, (os.cpu_count() or 1) // 2)
+        max_concurrency = min(32, max_by_cpu, max_by_ram)
         semaphore = asyncio.Semaphore(max_concurrency)
+        logging.info(f"Concurrency limit set to {max_concurrency} (cpu_half={max_by_cpu}, ram_half_based={max_by_ram})")
 
         async def run_with_limit(biz, pipeline):
             async with semaphore:
                 try:
+                    logging.info(f"Running pipeline for business {biz.get('name')} ({biz.get('id')}) url={pipeline.business_url}")
                     return await pipeline.run()
                 except Exception as e:
                     logging.error(f"Pipeline failed for {biz.get('id')}: {e}")
@@ -87,7 +94,6 @@ def main():
             website = yelp_site or google_site
 
             if website:
-                logging.info(f"Running pipeline for business {biz.get('name')} ({biz_id}) url={website}")
                 pipeline = BusinessPipeline(
                     openrouter_api_key=openrouter_api_key,
                     pagespeed_api_key=pagespeed_api_key,

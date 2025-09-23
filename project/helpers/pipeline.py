@@ -38,10 +38,13 @@ class BusinessPipeline:
                 async with async_playwright() as p:
                     browser = await p.chromium.launch(headless=True)
                     context = await browser.new_context()
-                    page = await context.new_page()
-                    await page.goto(link, wait_until="domcontentloaded", timeout=60000)
-                    content = await page.inner_text("body")
-                    await browser.close()
+                    try:
+                        page = await context.new_page()
+                        await page.goto(link, wait_until="domcontentloaded", timeout=60000)
+                        content = await page.inner_text("body")
+                    finally:
+                        await context.close()
+                        await browser.close()
 
                 # Process page
                 summary = self.processor.summarize_page(link, content)
