@@ -39,13 +39,59 @@ class GoogleClient:
         # Add retry with exponential backoff
         for attempt in range(3):
             try:
+                # Request a comprehensive set of supported fields.
+                # Note: googlemaps python client (Places Details) supports a v2-style fields list.
+                # We request broadly to "capture all fields" while staying within supported field names.
                 results = self.client.place(
                     place_id=place_id,
+                    # Restrict to fields supported by googlemaps.places.place (per error message).
                     fields=[
-                        "place_id", "name", "business_status", "formatted_address",
-                        "formatted_phone_number", "international_phone_number",
-                        "geometry", "opening_hours", "user_ratings_total", "type",
-                        "website", "rating"
+                        # Identifiers and core
+                        "place_id",
+                        "name",
+                        "business_status",
+                        "type",  # singular per client
+                        # Address
+                        "formatted_address",
+                        "address_component",   # valid token (not address_components)
+                        "adr_address",
+                        "vicinity",
+                        "plus_code",
+                        "utc_offset",
+                        # Contact
+                        "formatted_phone_number",
+                        "international_phone_number",
+                        "website",
+                        "url",
+                        # Location/geometry
+                        "geometry",  # includes subpaths like geometry/location/* and viewport/*
+                        # Hours
+                        "opening_hours",
+                        "current_opening_hours",
+                        "secondary_opening_hours",
+                        # Ratings & reviews
+                        "rating",
+                        "user_ratings_total",
+                        "price_level",
+                        "reviews",  # review is listed but reviews covers collection
+                        # Photos & icons
+                        "photo",    # valid token (not photos)
+                        "icon",
+                        # Attributes and services
+                        "editorial_summary",
+                        "reservable",
+                        "curbside_pickup",
+                        "delivery",
+                        "dine_in",
+                        "takeout",
+                        "wheelchair_accessible_entrance",
+                        "serves_breakfast",
+                        "serves_lunch",
+                        "serves_dinner",
+                        "serves_beer",
+                        "serves_wine",
+                        "serves_brunch",
+                        "permanently_closed",
                     ]
                 )
                 return results.get("result", {})
@@ -89,25 +135,30 @@ class GoogleClient:
         details = self.get_place_details(place_id) if place_id else {}
 
         enriched = yelp_business.copy()
-        google_enrichment: Dict[str, Any] = {}
 
-        # Merge fields if missing
-        merge_fields = [
-            "formatted_address", "formatted_phone_number", "international_phone_number",
-            "geometry", "opening_hours", "user_ratings_total", "type", "business_status", "website", "rating"
+        # Promote a curated subset to top-level only if missing from Yelp,
+        # but preserve the full Google payload under google_enrichment.
+        promote_fields = [
+            "formatted_address",
+            "formatted_phone_number",
+            "international_phone_number",
+            "geometry",
+            "opening_hours",
+            "user_ratings_total",
+            "rating",
+            "website",
+            "business_status",
+            "type",
         ]
 
-        for field in merge_fields:
-            if field in details:
-                if not enriched.get(field):
-                    enriched[field] = details[field]
-                else:
-                    google_enrichment[field] = details[field]
+        for field in promote_fields:
+            if field in details and not enriched.get(field):
+                enriched[field] = details[field]
 
-        # Always store Google identifiers and extras
-        google_enrichment["place_id"] = details.get("place_id")
-        google_enrichment["name"] = details.get("name")
-        enriched["google_enrichment"] = google_enrichment
+        # Always store the entire Google details payload for full fidelity
+        # so we "capture all fields".
+        # To avoid accidental mutation, store a shallow copy.
+        enriched["google_enrichment"] = dict(details) if isinstance(details, dict) else details
 
         return enriched
 
