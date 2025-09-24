@@ -19,6 +19,8 @@ Per row placeholders:
 import os
 from typing import Any, Dict, List
 import html
+from datetime import datetime
+import pathlib
 
 from project.libs.supabase_client import get_client
 from project.reporting.renderer import (
@@ -26,6 +28,8 @@ from project.reporting.renderer import (
     render_indexed_line_block,
     render_indexed_block_between,
 )
+from project.reporting.config import get_report_config
+from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
 
 
 def _fetch_pages(business_id: str) -> List[Dict[str, Any]]:
@@ -220,6 +224,33 @@ def generateWebsiteReport(business_id: str) -> str:
         )
 
     return html
+
+
+def generateWebsiteReportPdf(business_id: str, to_path: str | None = None, upload: bool | None = None) -> str:
+    """
+    Render the Website Report PDF for a given business_id.
+
+    Returns:
+        str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
+    """
+    cfg = get_report_config()
+    html = generateWebsiteReport(business_id)
+    html_with_styles = _inject_report_styles(html)
+
+    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
+    os.makedirs(out_dir, exist_ok=True)
+    if to_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        to_path = os.path.join(out_dir, f"website-{business_id}-{ts}.pdf")
+
+    base_url = pathlib.Path(_project_root_abs()).as_uri()
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+
+    do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
+    if do_upload:
+        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+
+    return to_path
 
 
 if __name__ == "__main__":

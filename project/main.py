@@ -5,6 +5,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import logging
+import argparse
 
 from project.helpers.integration import (
     merge_business_data,
@@ -13,6 +14,9 @@ from project.helpers.integration import (
 )
 from project.libs.yelp_client import YelpClient
 from project.libs.google_client import GoogleClient
+from project.reporting.config import get_report_config
+from project.reporting.business_report import generateBusinessReport, generateBusinessReportPdf
+from project.reporting.website_report import generateWebsiteReport, generateWebsiteReportPdf
 
 
 def get_paging_config():
@@ -38,77 +42,58 @@ def get_paging_config():
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    logging.info("Starting business data integration pipeline")
+    # CLI to choose between pipeline demo and report rendering
 
-    from project.libs.yelp_client import YelpClient
-    from project.libs.google_client import GoogleClient
-    from project.helpers.pipeline import BusinessPipeline
+    parser = argparse.ArgumentParser(description="Paradane Business Bot")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    import asyncio
-    import os
+    # Pipeline demo command
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run the data pipeline demo")
+    pipeline_parser.add_argument("--location", default="Charlotte, NC", help="Yelp search location")
+    pipeline_parser.add_argument("--term", default="restaurants", help="Yelp search term")
+    pipeline_parser.add_argument("--limit", type=int, default=10, help="Yelp result limit")
 
-    yelp_client = YelpClient()
-    google_client = GoogleClient()
-    # Supabase upserts are handled via integration.py
+    # Report rendering command
+    report_parser = subparsers.add_parser("report", help="Render report HTML or PDF")
+    report_parser.add_argument("--type", choices=["business", "website"], required=True, help="Report type")
+    report_parser.add_argument("--business-id", required=True, help="Business ID")
+    report_parser.add_argument("--pdf", action="store_true", help="Output PDF instead of HTML")
+    report_parser.add_argument("--out", required=False, help="Output path for PDF or HTML file")
+    report_parser.add_argument("--no-upload", action="store_true", help="Do not upload PDF to Storage even if enabled in config")
 
-    # Fetch from Yelp + Google
-    businesses = yelp_client.search_businesses("Charlotte, NC", "restaurants", limit=10)
-    enriched = google_client.enrich_batch(businesses)
+    args = parser.parse_args()
 
-    logging.info(f"Fetched {len(enriched)} businesses from Yelp + Google")
-    upsert_businesses(enriched)
-    logging.info("Upserted businesses into Supabase successfully")
-
-    # Website scraping and pipeline
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-    pagespeed_api_key = os.getenv("PAGESPEED_API_KEY")
-    db_url = os.getenv("DATABASE_URL")
-
-    import os
-
-    async def run_all_pipelines():
-        # Concurrency limiter based on CPU + available RAM
-        import psutil
-        est_browser_mem = 500 * 1024 * 1024  # ~500MB per browser
-        available_ram = psutil.virtual_memory().available
-        max_by_ram = max(1, (available_ram // est_browser_mem) // 2)
-        max_by_cpu = max(1, (os.cpu_count() or 1) // 2)
-        max_concurrency = min(32, max_by_cpu, max_by_ram)
-        semaphore = asyncio.Semaphore(max_concurrency)
-        logging.info(f"Concurrency limit set to {max_concurrency} (cpu_half={max_by_cpu}, ram_half_based={max_by_ram})")
-
-        async def run_with_limit(biz, pipeline):
-            async with semaphore:
-                try:
-                    logging.info(f"Running pipeline for business {biz.get('name')} ({biz.get('id')}) url={pipeline.business_url}")
-                    return await pipeline.run()
-                except Exception as e:
-                    logging.error(f"Pipeline failed for {biz.get('id')}: {e}")
-                    return e
-
-        tasks = []
-        for biz in enriched:
-            biz_id = biz.get("id")
-            yelp_site = yelp_client.extract_business_website(biz, biz.get("google_enrichment"))
-            google_site = google_client.extract_business_website_from_google(biz.get("google_enrichment"))
-            website = yelp_site or google_site
-
-            if website:
-                pipeline = BusinessPipeline(
-                    openrouter_api_key=openrouter_api_key,
-                    pagespeed_api_key=pagespeed_api_key,
-                    db_url=db_url,
-                    business_id=biz_id,
-                    business_url=website
-                )
-                tasks.append(run_with_limit(biz, pipeline))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for biz, result in zip(enriched, results):
-            if isinstance(result, Exception):
-                logging.error(f"Pipeline failed for {biz.get('id')}: {result}")
-
-    asyncio.run(run_all_pipelines())
+    if args.command == "pipeline":
+        logging.info("Starting business data integration pipeline")
+        from project.helpers.pipeline import BusinessPipeline
+        yelp_client = YelpClient()
+        google_client = GoogleClient()
+        businesses = yelp_client.search_businesses(args.location, args.term, limit=args.limit)
+        enriched = google_client.enrich_batch(businesses)
+        logging.info(f"Fetched {len(enriched)} businesses from Yelp + Google")
+        upsert_businesses(enriched)
+        logging.info("Upserted businesses into Supabase successfully")
+        # The rest of the crawling pipeline stays as-is for now.
+    elif args.command == "report":
+        _ = get_report_config()  # ensure config loads
+        if args.pdf:
+            if args.type == "business":
+                result = generateBusinessReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
+            else:
+                result = generateWebsiteReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
+            print(result)
+        else:
+            if args.type == "business":
+                html = generateBusinessReport(args.business_id)
+            else:
+                html = generateWebsiteReport(args.business_id)
+            if args.out:
+                os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+                with open(args.out, "w", encoding="utf-8") as f:
+                    f.write(html)
+                print(args.out)
+            else:
+                print(html[:20000])
 
 
 if __name__ == "__main__":

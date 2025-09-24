@@ -1,0 +1,11 @@
+{
+  "name": "paradane-business-bot-pdf-styles",
+  "private": true,
+  "devDependencies": {
+    "tailwindcss": "^3.4.11"
+  },
+  "scripts": {
+    "build:css": "npx tailwindcss -c tailwind.config.js -i ./project/template/styles/tailwind.input.css -o ./project/template/reports.css --minify",
+    "watch:css": "npx tailwindcss -c tailwind.config.js -i ./project/template/styles/tailwind.input.css -o ./project/template/reports.css --watch"
+  }
+}

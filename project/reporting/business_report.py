@@ -12,6 +12,8 @@ import base64
 import logging
 import os
 from urllib.parse import urlencode
+import pathlib
+from datetime import datetime
 
 from project.reporting.config import get_report_config
 from project.reporting.renderer import render_template, render_list_block
@@ -20,6 +22,8 @@ from project.reporting.utils.hours import formatBusinessHours
 from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, collectBusinessEmails, collectContactPages
 from project.reporting.utils.phone import normalizePhone
 from project.libs.supabase_client import get_client
+from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
+from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
 
 # Logger
 logger = logging.getLogger("project.reporting.business_report")
@@ -408,6 +412,68 @@ def generateBusinessReport(business_id: str) -> str:
     html = render_list_block(html, "BUSINESS_CONTACT_PAGE", contact_pages)
 
     return html
+
+def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
+    """
+    Render the Business Report PDF for a given business_id.
+
+    Returns:
+        str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
+    """
+    cfg = get_report_config()
+    html = generateBusinessReport(business_id)
+    # Inject precompiled Tailwind and print CSS
+    html_with_styles = _inject_report_styles(html)
+
+    # Determine output path
+    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
+    os.makedirs(out_dir, exist_ok=True)
+    if to_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
+
+    # Render to local file
+    base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+
+    # Upload if requested (default to config)
+    do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
+    if do_upload:
+        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+
+    return to_path
+
+
+def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
+    """
+    Render the Business Report PDF for a given business_id.
+
+    Returns:
+        str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
+    """
+    cfg = get_report_config()
+    html = generateBusinessReport(business_id)
+    # Inject precompiled Tailwind and print CSS
+    html_with_styles = _inject_report_styles(html)
+
+    # Determine output path
+    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
+    os.makedirs(out_dir, exist_ok=True)
+    if to_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
+
+    # Render to local file
+    base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+
+    # Upload if requested (default to config)
+    do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
+    if do_upload:
+        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+
+    return to_path
+
 
 def main():
     # Produce output when run as a module for quick verification
