@@ -39,11 +39,57 @@ tr, td, th, .card, .section, .avoid-break, .block {
 .border-gray-100 { border-color: #f3f4f6 !important; }
 .border-gray-50 { border-color: #f9fafb !important; }
 
-/* Tables */
+/* Tables and print-specific overrides to ensure thead repeats */
+@media print {
+  /* Ensure strict table semantics so Chromium repeats headers */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    page-break-inside: auto;
+    display: table !important;
+  }
+  thead {
+    display: table-header-group !important;
+    break-inside: avoid;
+    position: static !important;      /* disable any sticky on print */
+    transform: none !important;       /* disable any transforms on print */
+    contain: none !important;         /* disable containment */
+    will-change: auto !important;
+  }
+  tbody {
+    display: table-row-group !important;
+  }
+  tfoot {
+    display: none !important;
+  }
+  tr, th, td {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Neutralize wrappers that may block header repetition */
+  .table-wrapper, .card, .overflow-hidden, .overflow-auto, .overflow-scroll {
+    overflow: visible !important;
+  }
+
+  /* Prevent utility classes from breaking table semantics */
+  thead, tbody, tr, th, td {
+    display: revert !important;
+  }
+
+  /* Make sure header background prints as intended */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  th.bg-blue-gray-50 { background: #f8fafc !important; }
+}
+
+/* Default (screen + print baseline) table styling */
 table {
   width: 100%;
   border-collapse: collapse;
 }
+thead { display: table-header-group !important; }
+tbody { display: table-row-group !important; }
+tfoot { display: none !important; }
 thead th {
   border-bottom: 1px solid #e5e7eb !important;
 }
@@ -80,6 +126,9 @@ td, th {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Remove any footers in print explicitly and any default Playwright footer area */
+footer, .footer, #footer, .report-footer, .page-footer { display: none !important; }
+.playwright-footer, .pdf-footer, .chromium-footer { display: none !important; }
 
 img {
   max-width: 100%;

@@ -21,7 +21,7 @@ class PDFOptions:
     landscape: bool = False
     print_background: bool = True
     header_enabled: bool = True
-    footer_enabled: bool = True
+    footer_enabled: bool = False
     header_logo_url: str = "https://cdn.paradane.com/images/logo.svg"
     header_title: str = "Paradane Report"
     prefer_css_page_size: bool = True
@@ -72,7 +72,7 @@ def _build_header_template(opts: PDFOptions) -> str:
     # Playwright header/footer must be valid HTML fragment with minimal styles
     # Use CSS variables to keep it compact and ensure consistent sizing.
     return f"""
-<div style='font-size:10px; width:100%; padding:0 10mm; display:flex; align-items:center; justify-content:space-between; color:#4b5563;'>
+<div style='font-size:10px; width:100%; padding:0 11mm; display:flex; align-items:center; justify-content:space-between; color:#4b5563;'>
   <div style='display:flex; align-items:center; gap:8px'>
     <span style='font-weight:600; font-size:10px; color:#00489c'>{opts.header_title}</span>
   </div>
@@ -82,11 +82,8 @@ def _build_header_template(opts: PDFOptions) -> str:
 
 
 def _build_footer_template(opts: PDFOptions) -> str:
-    return """
-<div style='font-size:10px; width:100%; padding:0 10mm; display:flex; align-items:center; justify-content:flex-end; color:#6b7280'>
-  Page <span class="pageNumber"></span> of <span class="totalPages"></span>
-</div>
-""".strip()
+    # Footer is disabled globally. Return an empty fragment to ensure no default text.
+    return "<div></div>"
 
 
 def _resolve_file_url(relative_path_from_repo_root: str) -> str:
@@ -149,13 +146,14 @@ def _inject_report_styles(html: str) -> str:
 
 def _config_to_options() -> PDFOptions:
     cfg = get_report_config()
+    # Force footer to be disabled regardless of config to avoid any footer rendering.
     return PDFOptions(
         format=cfg.PDF_FORMAT,
         margins_mm=cfg.PDF_MARGINS_MM,
         landscape=cfg.PDF_LANDSCAPE,
         print_background=cfg.PDF_PRINT_BACKGROUND,
         header_enabled=cfg.PDF_HEADER_ENABLED,
-        footer_enabled=cfg.PDF_FOOTER_ENABLED,
+        footer_enabled=False,
         header_logo_url=cfg.PDF_HEADER_LOGO_URL,
         header_title=cfg.PDF_HEADER_TITLE_PREFIX,
         prefer_css_page_size=True,
@@ -208,10 +206,17 @@ def html_to_pdf_bytes(html: str, base_url: Optional[str] = None, options: Option
                 "scale": opts.scale,
             }
 
-            if opts.header_enabled or opts.footer_enabled:
+            # Footer must never render. Only enable header/footer mechanism if header is enabled.
+            # This also prevents Chromium default footers (page numbers) from appearing.
+            if opts.header_enabled:
+                pdf_kwargs["display_header_footer"] = True
+                pdf_kwargs["header_template"] = _build_header_template(opts)
+                pdf_kwargs["footer_template"] = "<div></div>"
+            else:
                 pdf_kwargs["display_header_footer"] = False
-                # pdf_kwargs["header_template"] = _build_header_template(opts) if opts.header_enabled else "<div></div>"
-                # pdf_kwargs["footer_template"] = _build_footer_template(opts) if opts.footer_enabled else "<div></div>"
+                # Ensure no accidental defaults
+                pdf_kwargs["header_template"] = "<div></div>"
+                pdf_kwargs["footer_template"] = "<div></div>"
 
             pdf_bytes: bytes = page.pdf(**pdf_kwargs)  # type: ignore[arg-type]
             return pdf_bytes
