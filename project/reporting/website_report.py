@@ -129,8 +129,31 @@ def generateWebsiteReport(business_id: str) -> str:
         key=lambda p: (_url_depth(p.get("url")), str(p.get("url") or "")),
     )
 
+    # Compute aggregates
+    def _avg(nums):
+        nums = [float(x) for x in nums if x is not None and str(x).strip() != ""]
+        if not nums:
+            return None
+        return sum(nums) / len(nums)
+
+    avg_speed_ms = _avg([p.get("time_to_interactive_ms") for p in pages])
+    avg_speed_str = _ms_to_seconds_str(avg_speed_ms) if avg_speed_ms is not None else "N/A"
+
+    avg_ps_score = _avg([p.get("page_speed_score") for p in pages])
+    avg_ps_score_str = "N/A" if avg_ps_score is None else str(int(round(avg_ps_score)))
+
+    avg_seo_score = _avg([p.get("seo_score") for p in pages])
+    avg_seo_score_str = "N/A" if avg_seo_score is None else str(int(round(avg_seo_score)))
+
     # If the template has other global placeholders, provide them here.
-    html = render_template(template_html, {})
+    html = render_template(
+        template_html,
+        {
+            "BUSINESS_PAGE_TOTAL_AVERAGE_SPEED": avg_speed_str,
+            "BUSINESS_PAGE_TOTAL_AVERAGE_SCORE": avg_ps_score_str,
+            "BUSINESS_PAGE_TOTAL_AVERAGE_SEO_SCORE": avg_seo_score_str,
+        },
+    )
 
     def render_row(index: int, row_template: str) -> str:
         p = pages[index]
