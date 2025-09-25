@@ -135,13 +135,70 @@ def render_indexed_line_block(
     return "\n".join(lines)
 
 
-def render_indexed_block_between(
+def render_indexed_block(
     template_html: str,
-    start_marker: str,
-    end_marker: str,
+    row_start_marker: str,
+    row_end_marker: str,
     item_count: int,
     render_for_index: Callable[[int, str], str],
 ) -> str:
+    # Debug logging without importing logging at top-level to avoid circulars
+    try:
+        import logging as _logging
+        _log = _logging.getLogger("project.reporting.renderer")
+        _log.debug("render_indexed_block called with item_count=%d, start_marker=%s, end_marker=%s", item_count, row_start_marker, row_end_marker)
+    except Exception:
+        _log = None
+    """
+    Duplicate a block marked by HTML comments, e.g.:
+
+        <!--REVIEWS_ROW_START-->
+        ... block with {SOME[INDEX]_PLACEHOLDER} ...
+        <!--REVIEWS_ROW_END-->
+
+    The block between markers (exclusive of markers) will be repeated item_count times,
+    each time replacing [INDEX] placeholders via render_for_index(i, block_template).
+
+    If markers not found: return original template.
+    If item_count == 0: remove the block including markers.
+    """
+    lines = template_html.splitlines(keepends=False)
+    start_idx = end_idx = None
+    for i, ln in enumerate(lines):
+        if start_idx is None and row_start_marker in ln:
+            start_idx = i
+            if _log: _log.debug("Found row_start_marker at line %d", i)
+        elif start_idx is not None and row_end_marker in ln:
+            end_idx = i
+            if _log: _log.debug("Found row_end_marker at line %d", i)
+            break
+
+    if start_idx is None or end_idx is None or end_idx <= start_idx:
+        if _log: _log.debug("Markers not found or invalid: start=%s end=%s", start_idx, end_idx)
+        return template_html
+
+    # Capture block EXCLUDING markers
+    block_lines = lines[start_idx + 1 : end_idx]
+    block = "\n".join(block_lines)
+
+    if item_count <= 0:
+        # Remove entire marker region
+        if _log: _log.debug("item_count is 0; removing block between %d and %d", start_idx, end_idx)
+        new_lines = lines[:start_idx] + lines[end_idx + 1 :]
+        return "\n".join(new_lines)
+
+    rendered: List[str] = []
+    for i in range(item_count):
+        # Ensure we never leak marker lines into the rendered output if they were accidentally captured
+        if _log: _log.debug("Rendering index %d for block of length %d chars", i, len(block))
+        piece = render_for_index(i, block)
+        piece = piece.replace(row_start_marker, "").replace(row_end_marker, "")
+        if _log and ("{BUSINESS_REVIEW[" in piece):
+            _log.debug("Post-render piece for idx %d still contains placeholders; length=%d", i, len(piece))
+        rendered.append(piece)
+
+    new_lines = lines[:start_idx] + rendered + lines[end_idx + 1 :]
+    return "\n".join(new_lines)
     """
     Duplicate a multi-line block between start_marker and end_marker (inclusive of both lines)
     for each index. The block should contain INDEX placeholders (e.g., {BUSINESS_PAGE[INDEX]_URL}).

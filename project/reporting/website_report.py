@@ -26,7 +26,6 @@ from project.libs.supabase_client import get_client
 from project.reporting.renderer import (
     render_template,
     render_indexed_line_block,
-    render_indexed_block_between,
 )
 from project.reporting.config import get_report_config
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
@@ -189,10 +188,13 @@ def generateWebsiteReport(business_id: str) -> str:
                 .replace("{BUSINESS_PAGE[INDEX]_URL_LOAD_TIME}", _ms_to_seconds_str(p.get("time_to_interactive_ms")))
                 .replace("{BUSINESS_PAGE[INDEX]_URL_SUMMARY}", _escape_html(p.get("summary")))
             )
-        html = render_indexed_block_between(
+        # NOTE: render_indexed_block_between was removed from renderer in favor of render_indexed_block.
+        # Keep compatibility by calling the new function if available.
+        from project.reporting.renderer import render_indexed_block as _rib
+        html = _rib(
             html,
-            start_marker="<!--PAGESPEED_ROW_START-->",
-            end_marker="<!--PAGESPEED_ROW_END-->",
+            row_start_marker="<!--PAGESPEED_ROW_START-->",
+            row_end_marker="<!--PAGESPEED_ROW_END-->",
             item_count=len(pages),
             render_for_index=render_ps_row,
         )
@@ -215,10 +217,11 @@ def generateWebsiteReport(business_id: str) -> str:
                 .replace("{BUSINESS_PAGE[INDEX]_URL_SEO_SCORE}", _s(p.get("seo_score")))
                 .replace("{BUSINESS_PAGE[INDEX]_URL_SEO_EXPLANATION}", _escape_html(p.get("seo_explanation")))
             )
-        html = render_indexed_block_between(
+        from project.reporting.renderer import render_indexed_block as _rib
+        html = _rib(
             html,
-            start_marker="<!--SEO_ROW_START-->",
-            end_marker="<!--SEO_ROW_END-->",
+            row_start_marker="<!--SEO_ROW_START-->",
+            row_end_marker="<!--SEO_ROW_END-->",
             item_count=len(pages),
             render_for_index=render_seo_row,
         )

@@ -4,7 +4,7 @@
     <div class="flex h-16 w-full items-center justify-between bg-white text-sm text-zinc-800 backdrop-blur transition-colors duration-500 ease-out md:h-20">
       <div class="flex items-center gap-10">
         <a class="relative flex h-12 w-28 flex-shrink-0 items-center justify-center md:w-32" href="https://paradane.com" target="_blank">
-          <img src="https://cdn.paradane.com/images/logo.svg" />
+          <img src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/logo.svg" />
         </a>
       </div>
       <div class="flex items-center gap-10">
@@ -15,40 +15,90 @@
   <div class="py-10 pt-5">
     <div class="flex flex-col">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden min-h-80 w-full">
-          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50">
-            <div class="mx-auto text-xs text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_ADDRESS}, {BUSINESS_CITY}, {BUSINESS_STATE}</div>
+        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-80 w-full">
+          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 rounded-tl-xl  rounded-tr-xl bg-white/50">
+            <div class="mx-auto text-sm text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_ADDRESS}, {BUSINESS_CITY}, {BUSINESS_STATE}</div>
           </div>
           <div class="absolute inset-0">
-            <img class="w-full h-full object-cover object-center rounded-xl" src="{BUSINESS_GALLERY_IMAGE}" border="0" />
+            <img class="w-full h-80 object-cover object-center rounded-xl" src="{BUSINESS_GALLERY_IMAGE}" border="0" />
           </div>
         </div>
-        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden min-h-80 w-full">
-          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50">
-            <div class="mx-auto text-xs text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG} - {BUSINESS_NAME}</div>
+        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-80 w-full">
+          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50  rounded-tl-xl rounded-tr-xl">
+            <div class="mx-auto text-sm text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG} - {BUSINESS_NAME}</div>
           </div>
           <div class="absolute inset-0">
-            <img class="w-full h-full object-cover object-center rounded-xl" src="{BUSINESS_MAP_IMAGE}" border="0" />
+            <img class="w-full h-80 object-cover object-center rounded-xl" src="{BUSINESS_MAP_IMAGE}" border="0" />
           </div>
         </div>
       </div>
     </div>
   </div>
-  <div class="py-10 pt-5">
+  <div class="py-10 pt-0">
+    <div class="flex flex-col">
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Amenities</div>
+        <div class="grid grid-cols-4 gap-5 text-sm">
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/utensils-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_DINE_IN}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/burger-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_TAKE_OUT}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/calendar-days-regular-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_RESERVABLE}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/beer-mug-empty-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_SERVES_BEER}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/wine-glass-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_SERVES_WINE}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/bowl-food-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_SERVES_DINNER}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/car-side-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_CURBSIDE_PICKUP}</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/wheelchair-solid-full.svg" border="0" />
+            <div>{BUSINESS_AMENITY_WHEERCHAIR_ACCESSIBLE_ENTRANCE}</div>
+          </div>
+        </div>
+    </div>
+  </div>
+  <div class="py-10 pt-0">
     <div class="flex flex-col">
       <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Information</div>
         <div>
           <ul class="text-zinc-600 text-sm block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5">
             <li>The name of the business is <b>{BUSINESS_NAME}</b>.</li>
             <li>The business is located at <b>{BUSINESS_ADDRESS}, {BUSINESS_CITY}, {BUSINESS_STATE}, {BUSINESS_COUNTRY}</b>.</li>
+            <li>The business global code is <b>{BUSINESS_GLOBAL_CODE}</b> and compound code is <b>{BUSINESS_COMPOUND_CODE}</b>.</li>
             <li>The business coordinates are <b>{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG}</b>.</li>
             <li>The price range, as shown on Yelp, is <b>{BUSINESS_PRICE}</b>.</li>
-            <li>The business has a total of <b>{BUSINESS_YELP_TOTAL_REVIEWS}</b> reviews on Yelp and <b>{BUSINESS_GOOGLE_PLACE_TOTAL_REVIEWS}</b> reviews on Google Place.</li>
-            <li>The business is rated <b>{BUSINESS_YELP_RATING}/5</b> on Yelp and <b>{BUSINESS_GOOGLE_PLACE_RATING}/5</b> on Google Place.</li>
+            <li>The business has a total of <b>{BUSINESS_YELP_TOTAL_REVIEWS}</b> reviews on Yelp.</li>
+            <li>The business has a total of <b>{BUSINESS_GOOGLE_PLACE_TOTAL_REVIEWS}</b> reviews on Google Place.</li>
+            <li>The business is rated <b>{BUSINESS_YELP_RATING}/5</b> on Yelp.</li>
+            <li>The business is rated <b>{BUSINESS_GOOGLE_PLACE_RATING}/5</b> on Google Place.</li>
             <li>Business status is <b>{BUSINESS_STATUS}</b>.</li>
             <li>The listed category/categories are: <b>{BUSINESS_CATEGORIES}</b>.</li>
             <li>The business opening hours are: <b>{BUSINESS_OPEN_DAYS}</b>.</li>
           </ul>
+        </div>
+    </div>
+  </div>
+  <div class="py-10 pt-0">
+    <div class="flex flex-col">
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Summary</div>
+        <div class="text-sm">
+          {BUSINESS_EDITORIAL_SUMMARY}
         </div>
     </div>
   </div>
@@ -70,6 +120,29 @@
         <li><b>Phone:</b> {BUSINESS_PHONE}</li>
         <li><b>Web-Page:</b> <a href="{BUSINESS_CONTACT_PAGE[INDEX]_URL}">{BUSINESS_CONTACT_PAGE[INDEX]_URL}</a></li>
       </ul>
+    </div>
+  </div>
+  <div class="py-10 pt-0">
+    <div class="flex flex-col">
+      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Reviews</div>
+      <!--REVIEWS_ROW_START-->
+      <div class="flex items-start gap-5 mb-6">
+        <div class="w-20 h-20 rounded-full overflow-hidden bg-zinc-50 flex-shrink-0">
+          <img class="w-full h-full object-cover" src="{BUSINESS_REVIEW[INDEX]_PROFILE_PHOTO_URL}" border="0" />
+        </div>
+        <div class="flex flex-col gap-1 text-sm grow">
+          <div class="font-semibold text-zinc-800">
+            {BUSINESS_REVIEW[INDEX]_AUTHOR_NAME} - {BUSINESS_REVIEW[INDEX]_RATING} / 5
+          </div>
+          <div class="line-clamp-2 text-zinc-700">
+            {BUSINESS_REVIEW[INDEX]_TEXT}
+          </div>
+          <div class="text-zinc-600">
+            Published {BUSINESS_REVIEW[INDEX]_TIME_AGO}
+          </div>
+        </div>
+      </div>
+      <!--REVIEWS_ROW_END-->
     </div>
   </div>
   </div>

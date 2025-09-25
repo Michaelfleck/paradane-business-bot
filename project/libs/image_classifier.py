@@ -151,22 +151,37 @@ def _get_pipeline() -> "Pipeline":
 
 def _download_image_bytes(url: str, timeout_s: float) -> bytes:
     """
-    Download bytes for an image URL.
+    Download bytes for an image URL with small retry/backoff.
     Special-case Google Places Photo API redirect URLs by allowing redirects and
     ensuring we ultimately fetch the binary content the HF pipeline expects.
     """
-    # Allow redirects; requests will follow the Google Photo API redirect to the actual CDN image.
-    r = requests.get(url, stream=True, timeout=timeout_s, allow_redirects=True)
-    r.raise_for_status()
-    # Some endpoints may respond with HTML if key/params are wrong; add a simple guard
-    content_type = r.headers.get("Content-Type", "").lower()
-    if "text/html" in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-        # Try to resolve final URL and re-fetch as binary without stream to simplify edge servers
-        final_url = r.url
-        rr = requests.get(final_url, timeout=timeout_s)
-        rr.raise_for_status()
-        return rr.content
-    return r.content
+    last_exc: Exception | None = None
+    # 3 attempts with incremental backoff: 0s, 0.5s, 1.0s
+    for attempt in range(3):
+        try:
+            # Allow redirects; requests will follow the Google Photo API redirect to the actual CDN image.
+            r = requests.get(url, stream=True, timeout=timeout_s, allow_redirects=True)
+            r.raise_for_status()
+            # Some endpoints may respond with HTML if key/params are wrong; add a simple guard
+            content_type = r.headers.get("Content-Type", "").lower()
+            if "text/html" in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                # Try to resolve final URL and re-fetch as binary without stream to simplify edge servers
+                final_url = r.url
+                rr = requests.get(final_url, timeout=timeout_s)
+                rr.raise_for_status()
+                return rr.content
+            return r.content
+        except Exception as e:
+            last_exc = e
+            # brief backoff then retry
+            try:
+                time.sleep(0.5 * attempt)
+            except Exception:
+                pass
+            logger.warning("Image download attempt %d failed for url=%s err=%s", attempt + 1, url, e)
+    # After retries, re-raise
+    assert last_exc is not None
+    raise last_exc
 
 
 def classify_exterior_interior(image_url: str, timeout_s: Optional[float] = None) -> Dict[str, float]:
@@ -192,7 +207,7 @@ def classify_exterior_interior(image_url: str, timeout_s: Optional[float] = None
         # If classifier cannot initialize (e.g., due to torch CVE restrictions), propagate a clear error
         raise
 
-    # Download first to enforce our timeout deterministically
+    # Download first to enforce our timeout deterministically with retries inside helper
     img_bytes = _download_image_bytes(image_url, timeout)
     img_buf = io.BytesIO(img_bytes)
 
@@ -235,9 +250,15 @@ def select_best_photo(photo_urls: List[str], timeout_s: Optional[float] = None, 
     Select best photo by prioritizing exterior, then interior, with optional business name boosting.
     Returns selected URL or None if no candidates.
 
+    Behavior update:
+    - As soon as we encounter the first image that BOTH:
+        1) contains/matches the business name with a positive match score (OCR or URL heuristic), and
+        2) is classified as exterior with at least the interior margin advantage,
+      we immediately return that image without evaluating remaining images.
+
     - If classifier disabled: returns first URL (if any).
     - On any classification error: continues evaluating others; if none succeed, returns first URL.
-    - Short-circuits on decisive exterior with sufficient margin and score using boosted scores.
+    - Also retains previous short-circuit on decisive exterior using boosted scores.
     """
     if not photo_urls:
         return None
@@ -269,11 +290,23 @@ def select_best_photo(photo_urls: List[str], timeout_s: Optional[float] = None, 
             return ""
 
     for url in photo_urls:
-        try:
-            scores = classify_exterior_interior(url, timeout_s=timeout_s)
-            any_success = True
-        except Exception as e:
-            logger.warning("Classifier failed for url=%s err=%s; skipping", url, e)
+        # Try classification with small retry loop to withstand transient timeouts
+        scores = None
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                scores = classify_exterior_interior(url, timeout_s=timeout_s)
+                any_success = True
+                break
+            except Exception as e:
+                last_exc = e
+                logger.warning("Classification attempt %d failed for url=%s err=%s", attempt + 1, url, e)
+                try:
+                    time.sleep(0.5 * attempt)
+                except Exception:
+                    pass
+        if scores is None:
+            logger.warning("Classifier failed for url=%s after retries err=%s; skipping", url, last_exc)
             continue
 
         ext, inte = scores.get("exterior", 0.0), scores.get("interior", 0.0)
@@ -324,6 +357,12 @@ def select_best_photo(photo_urls: List[str], timeout_s: Optional[float] = None, 
             best_ext_boosted = (boosted_ext, url)
         if boosted_int > best_int_boosted[0]:
             best_int_boosted = (boosted_int, url)
+
+        # New short-circuit: if this image has a positive name match and is confidently exterior vs interior, return immediately.
+        # We treat name match as "positive" when name_match_score > 0.0. Adjust if stricter threshold is desired.
+        if business_name and name_match_score > 0.0 and (ext - inte) >= margin:
+            logger.info("Short-circuit on first exterior-with-name match url=%s name_score=%.2f ext=%.3f int=%.3f", url, name_match_score, ext, inte)
+            return url
 
         # Short-circuit using boosted scores for decisive exterior
         if boosted_ext - boosted_int >= margin and boosted_ext >= 0.85:

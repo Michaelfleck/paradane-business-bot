@@ -16,7 +16,7 @@ import pathlib
 from datetime import datetime
 
 from project.reporting.config import get_report_config
-from project.reporting.renderer import render_template, render_list_block
+from project.reporting.renderer import render_template, render_list_block, render_indexed_block
 from project.reporting.utils.address import parseAddressFromDisplay, geocodeAddressToCoords
 from project.reporting.utils.hours import formatBusinessHours
 from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, collectBusinessEmails, collectContactPages
@@ -435,6 +435,82 @@ def generateBusinessReport(business_id: str) -> str:
     normalized_phone = normalizePhone(raw_phone, cfg.DEFAULT_PHONE_COUNTRY) or "N/A"
 
     # 9) Build context with "N/A" defaults
+    ge: Dict[str, Any] = _safe_get(biz, "google_enrichment", {}) or {}
+
+    def _amenity_label(flag: Optional[bool], yes_text: str, no_text: str) -> str:
+        if flag is None:
+            return "—"
+        return yes_text if bool(flag) else no_text
+
+    # Editorial summary:
+    # - Prefer google_enrichment.editorial_summary.overview if available.
+    # - Else synthesize from reviews (up to 2 highlights) and core facts.
+    editorial_summary = "—"
+    try:
+        overview = None
+        es = ge.get("editorial_summary")
+        if isinstance(es, dict):
+            overview = es.get("overview")
+        if isinstance(overview, str) and overview.strip():
+            editorial_summary = overview.strip()
+        else:
+            # Fallback synthesis
+            revs = ge.get("reviews")
+            lines: List[str] = []
+            if isinstance(revs, list) and revs:
+                # Sort by time desc if 'time' present
+                try:
+                    revs_sorted = sorted(
+                        [r for r in revs if isinstance(r, dict)],
+                        key=lambda r: r.get("time", 0),
+                        reverse=True,
+                    )
+                except Exception:
+                    revs_sorted = [r for r in revs if isinstance(r, dict)]
+                for r in revs_sorted[:2]:
+                    txt = r.get("text")
+                    if isinstance(txt, str):
+                        txt = txt.strip().replace("\n", " ")
+                        if txt:
+                            # clamp length ~220 chars
+                            if len(txt) > 220:
+                                txt = txt[:217].rstrip() + "..."
+                            lines.append(f"“{txt}”")
+            # Add one meta line
+            meta_parts: List[str] = []
+            if categories and categories != "N/A":
+                meta_parts.append(categories)
+            if isinstance(google_place_rating, (int, float)) or (isinstance(google_place_rating, str) and google_place_rating != "N/A"):
+                meta_parts.append(f"Google {google_place_rating}/5")
+            if isinstance(yelp_rating, (int, float)) or (isinstance(yelp_rating, str) and yelp_rating != "N/A"):
+                meta_parts.append(f"Yelp {yelp_rating}/5")
+            meta = ""
+            if meta_parts:
+                meta = f"{name} — " + ", ".join(meta_parts) + "."
+            # Combine
+            if lines or meta:
+                editorial_summary = " ".join(([meta] if meta else []) + lines) or "—"
+    except Exception:
+        editorial_summary = "—"
+
+    # Amenity booleans from Google enrichment with explicit phrasing
+    amenity_dine_in = _amenity_label(ge.get("dine_in"), "Dine-in Available", "No Dine-in")
+    amenity_take_out = _amenity_label(ge.get("takeout"), "Takeout Available", "No Takeout")
+    amenity_reservable = _amenity_label(ge.get("reservable"), "Reservations Accepted", "No Reservations")
+    amenity_serves_beer = _amenity_label(ge.get("serves_beer"), "Serves Beer", "Doesn't Serve Beer")
+    amenity_serves_wine = _amenity_label(ge.get("serves_wine"), "Serves Wine", "Doesn't Serve Wine")
+    amenity_serves_dinner = _amenity_label(ge.get("serves_dinner"), "Serves Dinner", "Doesn't Serve Dinner")
+    amenity_curbside_pickup = _amenity_label(ge.get("curbside_pickup"), "Curbside Pickup", "No Curbside Pickup")
+    amenity_wheelchair_entrance = _amenity_label(ge.get("wheelchair_accessible_entrance"), "Wheelchair Entrance", "No Wheelchair Entrance")
+
+    # Plus codes (global_code, compound_code) live under google_enrichment.plus_code per Google Places schema
+    plus_code = ge.get("plus_code") if isinstance(ge, dict) else None
+    if not isinstance(plus_code, dict):
+        plus_code = {}
+
+    business_global_code = plus_code.get("global_code") or "N/A"
+    business_compound_code = plus_code.get("compound_code") or "N/A"
+
     context: Dict[str, Any] = {
         "BUSINESS_NAME": name,
         "BUSINESS_ADDRESS": addr1,
@@ -458,7 +534,96 @@ def generateBusinessReport(business_id: str) -> str:
         "BUSINESS_GOOGLE_PLACE_URL": google_place_url,
         "BUSINESS_EMAILS": emails_str,
         "BUSINESS_PHONE": normalized_phone,
+        # Newly implemented placeholders:
+        "BUSINESS_EDITORIAL_SUMMARY": editorial_summary,
+        "BUSINESS_AMENITY_DINE_IN": amenity_dine_in,
+        "BUSINESS_AMENITY_TAKE_OUT": amenity_take_out,
+        "BUSINESS_AMENITY_RESERVABLE": amenity_reservable,
+        "BUSINESS_AMENITY_SERVES_BEER": amenity_serves_beer,
+        "BUSINESS_AMENITY_SERVES_WINE": amenity_serves_wine,
+        "BUSINESS_AMENITY_SERVES_DINNER": amenity_serves_dinner,
+        "BUSINESS_AMENITY_CURBSIDE_PICKUP": amenity_curbside_pickup,
+        "BUSINESS_AMENITY_WHEERCHAIR_ACCESSIBLE_ENTRANCE": amenity_wheelchair_entrance,
+        # Plus code placeholders:
+        "BUSINESS_GLOBAL_CODE": business_global_code,
+        "BUSINESS_COMPOUND_CODE": business_compound_code,
     }
+
+    # 10a) Expand Reviews block using google_enrichment.reviews
+    # We render up to 3 reviews into the block between the opening <div class="flex items-start gap-5"> and its closing sibling.
+    try:
+        reviews = []
+        revs = ge.get("reviews")
+        if isinstance(revs, list):
+            # Sort most recent first if 'time' exists
+            try:
+                revs = sorted([r for r in revs if isinstance(r, dict)], key=lambda r: r.get("time", 0), reverse=True)
+            except Exception:
+                revs = [r for r in revs if isinstance(r, dict)]
+            for r in revs:
+                # Normalize fields with safe defaults
+                profile_photo_url = r.get("profile_photo_url") or ""
+                author_name = r.get("author_name") or "Anonymous"
+                rating = r.get("rating") if r.get("rating") is not None else "N/A"
+                text = r.get("text") or ""
+                time_ago = r.get("relative_time_description") or ""
+                # Clean text newlines to avoid layout issues
+                if isinstance(text, str):
+                    text = text.strip().replace("\r", " ").replace("\n", " ")
+                reviews.append({
+                    "BUSINESS_REVIEW[INDEX]_PROFILE_PHOTO_URL": profile_photo_url or TRANSPARENT_GIF_DATA_URL,
+                    "BUSINESS_REVIEW[INDEX]_AUTHOR_NAME": author_name,
+                    "BUSINESS_REVIEW[INDEX]_RATING": rating,
+                    "BUSINESS_REVIEW[INDEX]_TEXT": text,
+                    "BUSINESS_REVIEW[INDEX]_TIME_AGO": time_ago,
+                })
+        # Render the indexed block if marker lines exist
+        if reviews:
+            logger.debug("Reviews: prepared %d review rows", len(reviews))
+
+            def _render_review(i: int, block_template: str) -> str:
+                """
+                Replace any {BUSINESS_REVIEW[INDEX]_...} placeholders in the provided block_template
+                with the concrete values from reviews[i], by converting [INDEX] -> [i] dynamically.
+                This uses a regex so we replace all review placeholders present in the block without
+                having to enumerate each key explicitly.
+                """
+                import re
+                row = reviews[i] if i < len(reviews) else {}
+                out = block_template
+                # 1) Replace all {BUSINESS_REVIEW[INDEX]_XYZ} with {BUSINESS_REVIEW[i]_XYZ} literally (no capture groups)
+                pattern = r"\{BUSINESS_REVIEW\[INDEX\]_([A-Z0-9_]+)\}"
+                replacement = "{" + f"BUSINESS_REVIEW[{i}]_\\1" + "}"
+                out = re.sub(pattern, replacement, out)
+                # 2) Replace concrete placeholders with actual values
+                for k, v in row.items():
+                    concrete = "{" + k.replace("[INDEX]", f"[{i}]") + "}"
+                    out = out.replace(concrete, str(v))
+                # 3) Fallback: clear any unresolved BUSINESS_REVIEW[i]_ placeholders
+                out = re.sub(r"\{BUSINESS_REVIEW\[" + str(i) + r"\]_[A-Z0-9_]+\}", "", out)
+                # Clean any stray markers if present within captured block
+                out = out.replace("<!--REVIEWS_ROW_START-->", "").replace("<!--REVIEWS_ROW_END-->", "")
+                return out
+
+            # First expand the reviews block before global placeholder rendering, because
+            # the reviews contain [INDEX]-scoped placeholders that won't be present in context.
+            has_markers = ("<!--REVIEWS_ROW_START-->" in template_html) and ("<!--REVIEWS_ROW_END-->" in template_html)
+            logger.debug("Review markers present: %s", has_markers)
+            html = render_indexed_block(
+                template_html,
+                row_start_marker="<!--REVIEWS_ROW_START-->",
+                row_end_marker="<!--REVIEWS_ROW_END-->",
+                item_count=len(reviews),
+                render_for_index=_render_review,
+            )
+            # Now perform the global replacements and contact pages list
+            html = render_template(html, context)
+            html = render_list_block(html, "BUSINESS_CONTACT_PAGE", contact_pages)
+            logger.debug("Final HTML around Reviews section (snippet): %s", html.split("<!--REVIEWS_ROW_START-->")[0][-300:] if "<!--REVIEWS_ROW_START-->" in template_html else html[:300])
+            return html
+    except Exception:
+        # Fall through to standard rendering if anything goes wrong
+        pass
 
     # 10) Render placeholders and list duplication
     html = render_template(template_html, context)

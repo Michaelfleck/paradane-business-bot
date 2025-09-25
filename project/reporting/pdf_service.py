@@ -72,7 +72,7 @@ def _build_header_template(opts: PDFOptions) -> str:
     # Playwright header/footer must be valid HTML fragment with minimal styles
     # Use CSS variables to keep it compact and ensure consistent sizing.
     return f"""
-<div style='font-size:10px; width:100%; padding:0 11mm; display:flex; align-items:center; justify-content:space-between; color:#4b5563;'>
+<div style='font-size:10px; width:100%; padding:0 10.5mm; display:flex; align-items:center; justify-content:space-between; color:#4b5563;'>
   <div style='display:flex; align-items:center; gap:8px'>
     <span style='font-weight:600; font-size:10px; color:#00489c'>{opts.header_title}</span>
   </div>
