@@ -40,6 +40,15 @@ class ReportConfig:
     MAP_DEFAULT_ZOOM: int
     DEFAULT_PHONE_COUNTRY: str
 
+    # Classifier / HF configuration
+    HF_MODEL_ID: str
+    CLASSIFIER_ENABLED: bool
+    CLASSIFIER_TIMEOUT_S: float
+    CLASSIFIER_TOPK: int
+    CLASSIFIER_CONFIDENCE_MARGIN: float
+    CLASSIFIER_CACHE_SIZE: int
+    GOOGLE_PHOTO_MAXWIDTH: int
+
     # PDF-related configuration
     PDF_ENGINE: Literal["playwright"]
     PDF_FORMAT: str
@@ -64,6 +73,14 @@ def get_report_config() -> ReportConfig:
         - MAP_DEFAULT_SIZE (default "600x400")
         - MAP_DEFAULT_ZOOM (default "15")
         - DEFAULT_PHONE_COUNTRY (default "US")
+        - HF_MODEL_ID (default "laion/CLIP-ViT-B-32-laion2B-s34B-b79K")
+        - CLASSIFIER_ENABLED (default "true")
+        - CLASSIFIER_TIMEOUT_S (default "5.0")
+        - CLASSIFIER_TOPK (default "2")
+        - CLASSIFIER_CONFIDENCE_MARGIN (default "0.10")
+        - CLASSIFIER_CACHE_SIZE (default "256")
+        - CLASSIFIER_STRICT (default "false")  # if false, auto-disable classifier on init failure
+        - GOOGLE_PHOTO_MAXWIDTH (default "800")
         - PDF_ENGINE (default "playwright")
         - PDF_FORMAT (default "A4")
         - PDF_MARGINS_MM (default "10")
@@ -84,6 +101,35 @@ def get_report_config() -> ReportConfig:
     size = os.getenv("MAP_DEFAULT_SIZE", "600x400")
     zoom_str = os.getenv("MAP_DEFAULT_ZOOM", "15")
     country = os.getenv("DEFAULT_PHONE_COUNTRY", "US")
+
+    # HF / classifier config
+    # Prefer an open, locally-cached friendly model. Keep old default as fallback.
+    hf_model_id = os.getenv("HF_MODEL_ID", "openai/clip-vit-base-patch32")
+    def _to_bool(val: str | None, default: bool) -> bool:
+        if val is None:
+            return default
+        return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
+    classifier_enabled = _to_bool(os.getenv("CLASSIFIER_ENABLED"), True)
+    try:
+        classifier_timeout_s = float(os.getenv("CLASSIFIER_TIMEOUT_S", "5.0"))
+    except ValueError:
+        classifier_timeout_s = 5.0
+    try:
+        classifier_topk = int(os.getenv("CLASSIFIER_TOPK", "2"))
+    except ValueError:
+        classifier_topk = 2
+    try:
+        classifier_conf_margin = float(os.getenv("CLASSIFIER_CONFIDENCE_MARGIN", "0.10"))
+    except ValueError:
+        classifier_conf_margin = 0.10
+    try:
+        classifier_cache_size = int(os.getenv("CLASSIFIER_CACHE_SIZE", "256"))
+    except ValueError:
+        classifier_cache_size = 256
+    try:
+        google_photo_maxwidth = int(os.getenv("GOOGLE_PHOTO_MAXWIDTH", "800"))
+    except ValueError:
+        google_photo_maxwidth = 800
 
     def _to_bool(val: str, default: bool) -> bool:
         if val is None:
@@ -117,6 +163,15 @@ def get_report_config() -> ReportConfig:
         MAP_DEFAULT_SIZE=size,
         MAP_DEFAULT_ZOOM=zoom,
         DEFAULT_PHONE_COUNTRY=country,
+        # HF/classifier settings (explicit to avoid missing-args TypeError)
+        HF_MODEL_ID=hf_model_id,
+        CLASSIFIER_ENABLED=classifier_enabled,
+        CLASSIFIER_TIMEOUT_S=classifier_timeout_s,
+        CLASSIFIER_TOPK=classifier_topk,
+        CLASSIFIER_CONFIDENCE_MARGIN=classifier_conf_margin,
+        CLASSIFIER_CACHE_SIZE=classifier_cache_size,
+        GOOGLE_PHOTO_MAXWIDTH=google_photo_maxwidth,
+        # PDF and storage
         PDF_ENGINE=pdf_engine,  # type: ignore[arg-type]
         PDF_FORMAT=pdf_format,
         PDF_MARGINS_MM=pdf_margins,

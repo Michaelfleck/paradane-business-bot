@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import base64
 import logging
 import os
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote_plus
 import pathlib
 from datetime import datetime
 
@@ -22,7 +22,6 @@ from project.reporting.utils.hours import formatBusinessHours
 from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, collectBusinessEmails, collectContactPages
 from project.reporting.utils.phone import normalizePhone
 from project.libs.supabase_client import get_client
-from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
 
 # Logger
@@ -369,6 +368,59 @@ def generateBusinessReport(business_id: str) -> str:
         # Use 1x1 transparent GIF per spec
         map_url = TRANSPARENT_GIF_DATA_URL
 
+    # Ensure config is available before using it for gallery image
+    cfg = get_report_config()
+
+    # Business Gallery Image via Google Places Photo API, enhanced by HF classifier
+    business_gallery_image = ""
+    try:
+        from project.libs.image_classifier import select_best_photo  # local import to avoid hard dep if unused
+        cfg_key = cfg.GOOGLE_API_KEY
+        ge = _safe_get(biz, "google_enrichment", {})
+        photos = []
+        if isinstance(ge, dict):
+            photos = ge.get("photos") or ge.get("photo") or []
+        # Normalize to list
+        if isinstance(photos, dict):
+            photos = [photos]
+        photo_refs = []
+        for p in photos:
+            if not isinstance(p, dict):
+                continue
+            pref = p.get("photo_reference")
+            if pref:
+                photo_refs.append(str(pref))
+        candidate_urls: list[str] = []
+        if cfg_key:
+            for ref in photo_refs:
+                # Build candidate URLs; width from config
+                maxw = get_report_config().GOOGLE_PHOTO_MAXWIDTH
+                candidate_urls.append(
+                    "https://maps.googleapis.com/maps/api/place/photo"
+                    + f"?maxwidth={maxw}&photo_reference={quote_plus(ref)}&key={cfg_key}"
+                )
+        # Use classifier to select the best candidate
+        selected = None
+        if candidate_urls:
+            try:
+                selected = select_best_photo(
+                    candidate_urls,
+                    timeout_s=get_report_config().CLASSIFIER_TIMEOUT_S,
+                    topk=get_report_config().CLASSIFIER_TOPK,
+                    business_name=name,
+                )
+            except Exception:
+                selected = None
+        if not selected and candidate_urls:
+            selected = candidate_urls[0]
+        business_gallery_image = selected or ""
+    except Exception:
+        business_gallery_image = ""
+
+    # Fallback to transparent GIF if still empty (keeps layout consistent)
+    if not business_gallery_image:
+        business_gallery_image = TRANSPARENT_GIF_DATA_URL
+
     # Emails
     emails = collectBusinessEmails(business_id)
     emails = _reorder_emails_by_domain(emails, website_root)
@@ -400,6 +452,7 @@ def generateBusinessReport(business_id: str) -> str:
         "BUSINESS_CATEGORIES": categories,
         "BUSINESS_OPEN_DAYS": open_days if open_days else "N/A",
         "BUSINESS_MAP_IMAGE": map_url,
+        "BUSINESS_GALLERY_IMAGE": business_gallery_image,
         "BUSINESS_WEBSITE_URL": website_url,
         "BUSINESS_YELP_URL": yelp_url,
         "BUSINESS_GOOGLE_PLACE_URL": google_place_url,
