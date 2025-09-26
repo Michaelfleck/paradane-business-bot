@@ -1,3 +1,4 @@
 ALTER TABLE business_pages
-ADD COLUMN seo_score INT NULL,
-ADD COLUMN seo_explanation TEXT NULL;
+ADD COLUMN IF NOT EXISTS seo_score INT NULL,
+ADD COLUMN IF NOT EXISTS seo_explanation TEXT NULL,
+ADD COLUMN IF NOT EXISTS social_links TEXT NULL;

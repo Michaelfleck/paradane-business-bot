@@ -19,7 +19,7 @@ from project.reporting.config import get_report_config
 from project.reporting.renderer import render_template, render_list_block, render_indexed_block
 from project.reporting.utils.address import parseAddressFromDisplay, geocodeAddressToCoords
 from project.reporting.utils.hours import formatBusinessHours
-from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, collectBusinessEmails, collectContactPages
+from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, collectBusinessEmails, collectContactPages, collectBusinessSocials
 from project.reporting.utils.phone import normalizePhone
 from project.libs.supabase_client import get_client
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
@@ -426,6 +426,131 @@ def generateBusinessReport(business_id: str) -> str:
     emails = _reorder_emails_by_domain(emails, website_root)
     emails_str = ", ".join(emails) if emails else "N/A"
 
+    # Social links collected across pages
+    socials = collectBusinessSocials(business_id)
+    # Flatten into readable strings per platform for simple placeholder usage
+    # Join lists; return empty string if none so we can drop lines in template cleanly
+    def _join_or_blank(values):
+        vals = [v for v in (values or []) if isinstance(v, str) and v.strip()]
+        return ", ".join(vals) if vals else ""
+
+    social_facebook = _join_or_blank(socials.get("facebook"))
+    social_instagram = _join_or_blank(socials.get("instagram"))
+    social_twitter = _join_or_blank(socials.get("twitter"))
+    social_linkedin = _join_or_blank(socials.get("linkedin"))
+    social_tiktok = _join_or_blank(socials.get("tiktok"))
+    social_youtube = _join_or_blank(socials.get("youtube"))
+    social_pinterest = _join_or_blank(socials.get("pinterest"))
+    social_whatsapp = _join_or_blank(socials.get("whatsapp"))
+    social_threads = _join_or_blank(socials.get("threads"))
+    social_snapchat = _join_or_blank(socials.get("snapchat"))
+
+    # Build socials <li> HTML list from collected platforms
+    # Requirement:
+    # - Display clickable links but show only @handle text (lowercase)
+    # - Strip extra query/hash params from hrefs (canonicalize to scheme+host+path only)
+    def _build_social_list_html(socials_dict: Dict[str, List[str]]) -> str:
+        from urllib.parse import urlparse, urlunparse
+
+        items: List[str] = []
+
+        def _canonicalize_url(u: str) -> str | None:
+            try:
+                p = urlparse(u.strip())
+                if not p.scheme or not p.netloc:
+                    return None
+                # remove query and fragment
+                canon = urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
+                # remove trailing slash (but keep root-only like "https://domain/" -> "https://domain/")
+                if canon.endswith("/") and p.path not in ("", "/"):
+                    canon = canon[:-1]
+                return canon
+            except Exception:
+                return None
+
+        def _last_segment(path: str) -> str:
+            seg = path.strip("/").split("/")[-1] if path else ""
+            return seg
+
+        def _extract_handle(label_lower: str, href: str) -> str | None:
+            try:
+                p = urlparse(href)
+                host = (p.netloc or "").lower()
+                path = p.path or ""
+
+                # platform-specific extraction
+                if "instagram.com" in host:
+                    h = _last_segment(path)  # /<handle>[/]
+                elif "twitter.com" in host or "x.com" in host:
+                    h = _last_segment(path)
+                elif "facebook.com" in host:
+                    # For pages, last segment is usually the page name; for profiles may be 'profile.php' -> no handle
+                    last = _last_segment(path)
+                    h = "" if last in ("profile.php", "") else last
+                elif "tiktok.com" in host:
+                    last = _last_segment(path)
+                    h = last[1:] if last.startswith("@") else last
+                elif "linkedin.com" in host:
+                    # /company/<handle> or /in/<handle> etc.
+                    parts = [seg for seg in path.split("/") if seg]
+                    h = parts[-1] if parts else ""
+                elif "youtube.com" in host:
+                    # /@handle or /channel/<id> -> prefer @handle if present
+                    parts = [seg for seg in path.split("/") if seg]
+                    if parts and parts[0].startswith("@"):
+                        h = parts[0][1:]
+                    else:
+                        h = _last_segment(path)
+                elif "pinterest.com" in host or "threads.net" in host or "snapchat.com" in host or "whatsapp.com" in host:
+                    h = _last_segment(path)
+                else:
+                    h = _last_segment(path)
+
+                h = (h or "").strip()
+                if not h:
+                    return None
+                # normalize to lowercase and ensure single leading @
+                h = h.lstrip("@").lower()
+                return f"@{h}"
+            except Exception:
+                return None
+
+        platform_labels = {
+            "facebook": "Facebook",
+            "instagram": "Instagram",
+            "twitter": "Twitter",
+            "x": "Twitter",
+            "linkedin": "LinkedIn",
+            "tiktok": "TikTok",
+            "youtube": "YouTube",
+            "pinterest": "Pinterest",
+            "whatsapp": "WhatsApp",
+            "threads": "Threads",
+            "snapchat": "Snapchat",
+        }
+
+        def _li(label: str, href: str, handle_text: str) -> str:
+            return f'<li><b>{label}:</b> <a href="{href}" target="_blank" rel="noopener noreferrer">{handle_text}</a></li>'
+
+        for plat, urls in (socials_dict or {}).items():
+            label = platform_labels.get(str(plat).lower(), str(plat).title())
+            for u in urls or []:
+                if not isinstance(u, str):
+                    continue
+                if not (u.startswith("http://") or u.startswith("https://")):
+                    continue
+                href = _canonicalize_url(u)
+                if not href:
+                    continue
+                handle = _extract_handle(str(plat).lower(), href)
+                if not handle:
+                    continue
+                items.append(_li(label, href, handle))
+
+        return "\n        ".join(items) if items else ""
+    
+    social_list_html = _build_social_list_html(socials)
+
     # Contact pages
     contact_pages = collectContactPages(business_id)
 
@@ -534,6 +659,8 @@ def generateBusinessReport(business_id: str) -> str:
         "BUSINESS_GOOGLE_PLACE_URL": google_place_url,
         "BUSINESS_EMAILS": emails_str,
         "BUSINESS_PHONE": normalized_phone,
+        # Socials as a pre-rendered list of <li> entries (only available links)
+        "BUSINESS_SOCIALS_LIST": social_list_html,
         # Newly implemented placeholders:
         "BUSINESS_EDITORIAL_SUMMARY": editorial_summary,
         "BUSINESS_AMENITY_DINE_IN": amenity_dine_in,

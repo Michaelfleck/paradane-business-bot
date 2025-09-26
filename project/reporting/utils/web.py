@@ -10,7 +10,7 @@ Web utilities for Business Reporting.
 """
 
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from urllib.parse import urlparse
 
 from project.libs.supabase_client import get_client
@@ -74,39 +74,101 @@ def buildGooglePlaceUrl(place_id: Optional[str]) -> Optional[str]:
 
 def _fetch_business_pages(business_id: str) -> List[Dict[str, Any]]:
     client = get_client()
-    # Select minimal fields used here
-    resp = client.table("business_pages").select("url,email,page_type").eq("business_id", business_id).execute()
+    # Select minimal fields used here (include social_links if present)
+    try:
+        resp = client.table("business_pages").select("url,email,social_links,page_type").eq("business_id", business_id).execute()
+    except Exception:
+        # Fallback if social_links column not present
+        resp = client.table("business_pages").select("url,email,page_type").eq("business_id", business_id).execute()
     data = getattr(resp, "data", resp)  # some clients return dict-like
     if isinstance(data, dict) and "data" in data:
         data = data["data"]
     return data or []
 
 
+def collectBusinessSocials(business_id: str) -> Dict[str, List[str]]:
+    """
+    Collect social links from business_pages rows.
+    Returns dict platform -> list of urls (deduped, sorted deterministically).
+    Expects 'social_links' column containing comma-separated "platform:url" entries.
+    """
+    pages = _fetch_business_pages(business_id)
+    items: List[Tuple[str, str]] = []
+    for row in pages:
+        s = (row or {}).get("social_links")
+        if not s:
+            continue
+        # Split by commas; tolerate spaces
+        parts = [p.strip() for p in str(s).split(",") if p.strip()]
+        for part in parts:
+            if ":" in part:
+                plat, url = part.split(":", 1)
+                plat = plat.strip().lower()
+                url = url.strip()
+                if plat and url:
+                    items.append((plat, url))
+    # Dedup per platform/url
+    out: Dict[str, List[str]] = {}
+    seen: set[Tuple[str, str]] = set()
+    for plat, url in items:
+        key = (plat, url)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.setdefault(plat, []).append(url)
+    # Sort each list deterministically
+    for plat in out:
+        out[plat] = sorted(out[plat])
+    return out
+
+
 def collectBusinessEmails(business_id: str) -> List[str]:
     """
     Collect emails from business_pages rows.
-    - lowercase, trim
-    - basic regex validation
-    - dedupe
-    - ordering heuristic: by length then lexicographic for determinism
+
+    Accepts that business_pages.email may contain one or more comma-separated
+    email addresses. For each row:
+      - Split on commas
+      - Trim and lowercase each candidate
+      - Validate with basic regex
+      - Drop obvious placeholders (e.g., email@example.com, user@domain.com)
+    Then:
+      - Dedupe while preserving first-seen order
+      - Sort deterministically by length then lexicographically
+
+    Returns list of valid emails.
     """
     pages = _fetch_business_pages(business_id)
-    emails: List[str] = []
+    raw_emails: List[str] = []
+
+    placeholder_set = {
+        "email@example.com",
+        "user@domain.com",
+        "example@mysite.com",
+    }
+
     for row in pages:
-        email = (row or {}).get("email")
-        if not email:
+        val = (row or {}).get("email")
+        if not val:
             continue
-        e = str(email).strip().lower()
-        if _EMAIL_RE.match(e):
-            emails.append(e)
-    # Dedupe preserving first occurrence
+        # Split comma-separated lists from the DB
+        parts = [p.strip().lower() for p in str(val).split(",") if p and p.strip()]
+        for e in parts:
+            # Ignore obvious placeholders
+            if e in placeholder_set:
+                continue
+            if _EMAIL_RE.match(e):
+                raw_emails.append(e)
+
+    # Dedupe preserving order
     seen = set()
     deduped: List[str] = []
-    for e in emails:
+    for e in raw_emails:
         if e not in seen:
             seen.add(e)
             deduped.append(e)
-    # Order by len then lexicographic to be deterministic
+
+    # Deterministic ordering (after preserving original order for de-dupe)
     deduped.sort(key=lambda x: (len(x), x))
     return deduped
 

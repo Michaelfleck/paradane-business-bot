@@ -358,30 +358,36 @@ def select_best_photo(photo_urls: List[str], timeout_s: Optional[float] = None, 
         if boosted_int > best_int_boosted[0]:
             best_int_boosted = (boosted_int, url)
 
-        # New short-circuit: if this image has a positive name match and is confidently exterior vs interior, return immediately.
-        # We treat name match as "positive" when name_match_score > 0.0. Adjust if stricter threshold is desired.
-        if business_name and name_match_score > 0.0 and (ext - inte) >= margin:
-            logger.info("Short-circuit on first exterior-with-name match url=%s name_score=%.2f ext=%.3f int=%.3f", url, name_match_score, ext, inte)
+        # New short-circuit: require stronger evidence before immediate selection to avoid false positives
+        # Conditions (ALL must hold):
+        #  - Non-trivial name match (>= 0.35) via OCR/URL heuristic
+        #  - Exterior substantially exceeds interior by (margin + 0.10)
+        #  - Raw exterior confidence itself is at least 0.70
+        if business_name and name_match_score >= 0.35 and (ext - inte) >= (margin + 0.10) and ext >= 0.70:
+            logger.info("Short-circuit on strong exterior-with-name match url=%s name_score=%.2f ext=%.3f int=%.3f", url, name_match_score, ext, inte)
             return url
 
-        # Short-circuit using boosted scores for decisive exterior
-        if boosted_ext - boosted_int >= margin and boosted_ext >= 0.85:
-            logger.info("Short-circuit exterior selection url=%s ext=%.3f int=%.3f boosted_ext=%.3f boosted_int=%.3f", url, ext, inte, boosted_ext, boosted_int)
+        # Short-circuit using boosted scores for decisive exterior (tighten threshold slightly)
+        if (boosted_ext - boosted_int) >= (margin + 0.05) and boosted_ext >= 0.88 and ext >= 0.65:
+            logger.info("Short-circuit exterior selection (tight) url=%s ext=%.3f int=%.3f boosted_ext=%.3f boosted_int=%.3f", url, ext, inte, boosted_ext, boosted_int)
             return url
 
         # Per-URL log when name provided
         if business_name:
             logger.info("Name match score=%.2f boosted_ext=%.2f boosted_int=%.2f url=%s", name_match_score, boosted_ext, boosted_int, url)
 
-    # Post-loop selection using boosted candidates first
-    if best_ext_boosted[1] is not None:
+    # Post-loop selection with safer preference:
+    # 1) Prefer boosted exterior if reasonably confident and advantaged
+    if best_ext_boosted[1] is not None and best_ext_boosted[0] >= 0.80:
         return best_ext_boosted[1]
-    if best_int_boosted[1] is not None:
+    # 2) Otherwise prefer boosted interior only if exterior wasn't confident at all
+    if best_int_boosted[1] is not None and (best_ext_boosted[0] < 0.60):
         return best_int_boosted[1]
-    # Fall back to previous raw logic if boosted not found
-    if best_ext[1] is not None:
+    # 3) Then raw exterior if available
+    if best_ext[1] is not None and best_ext[0] >= 0.70:
         return best_ext[1]
-    if best_int[1] is not None:
+    # 4) Then raw interior if exterior confidence is poor
+    if best_int[1] is not None and best_ext[0] < 0.55:
         return best_int[1]
-    # If none succeeded but list non-empty, return first URL per prior logic
+    # 5) Fallback to first URL only if classifier never succeeded; otherwise None to signal no confident pick
     return photo_urls[0] if not any_success else None

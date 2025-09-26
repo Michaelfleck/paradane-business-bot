@@ -140,6 +140,7 @@ class BusinessPipeline:
 
                 # Process page (extraction only)
                 email = self.processor.extract_emails(content)
+                social = self.processor.extract_social_links(content)
                 print("[DEBUG] Finished PageProcessor")
 
                 # Prepare words-only English content for model enrichment (strictly inner <body>)
@@ -236,6 +237,7 @@ class BusinessPipeline:
                     "business_id": self.business_id,
                     "url": url,
                     "email": email,
+                    "social_links": social,
                     "page_speed_score": metrics.get("page_speed_score"),
                     "time_to_interactive_ms": metrics.get("time_to_interactive_ms"),
                     "seo_score": seo.get("score"),

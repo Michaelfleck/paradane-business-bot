@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Simple HTML renderer utilities for the Business Reporting module.
 
-- render_template: Replace placeholders of form {KEY} with stringified values.
+- render_template: Replace placeholders of form {KEY} with stringified values, then remove blank social lines.
 - render_list_block: Duplicate a <li> line containing {PREFIX[INDEX]_...} for each item or remove it if empty.
 - render_indexed_line_block: Duplicate a single line that contains an INDEX placeholder and replace
   multiple sibling placeholders for the same INDEX per item (useful for website-report rows).
@@ -17,26 +17,30 @@ def render_template(template_html: str, context: Dict[str, object]) -> str:
     """
     Replace placeholders in the form {KEY} with the string value of context[KEY].
     Missing keys remain unchanged to allow subsequent passes if needed.
+    After substitution, remove list items for socials where the value is blank.
 
     Args:
         template_html: Raw HTML template as a string.
         context: Dictionary of placeholder values.
 
     Returns:
-        Rendered HTML with placeholders substituted.
+        Rendered HTML with placeholders substituted and empty social lines removed.
     """
     if not context:
-        return template_html
+        out_html = template_html
+    else:
+        def replace(match: re.Match) -> str:
+            key = match.group(1)
+            if key in context and context[key] is not None:
+                return str(context[key])
+            return match.group(0)
 
-    def replace(match: re.Match) -> str:
-        key = match.group(1)
-        if key in context and context[key] is not None:
-            return str(context[key])
-        return match.group(0)
+        # Match placeholders like {BUSINESS_NAME}, capturing KEY without braces
+        pattern = re.compile(r"\{([A-Z0-9_\[\]\:]+)\}")
+        out_html = pattern.sub(replace, template_html)
 
-    # Match placeholders like {BUSINESS_NAME}, capturing KEY without braces
-    pattern = re.compile(r"\{([A-Z0-9_\[\]\:]+)\}")
-    return pattern.sub(replace, template_html)
+    # No blank-line cleanup needed for socials now since we pre-render the <li> elements in Python.
+    return out_html
 
 
 def render_list_block(template_html: str, key_prefix: str, items: List[str]) -> str:

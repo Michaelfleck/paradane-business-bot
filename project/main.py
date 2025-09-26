@@ -73,7 +73,52 @@ def main():
         logging.info(f"Fetched {len(enriched)} businesses from Yelp + Google")
         upsert_businesses(enriched)
         logging.info("Upserted businesses into Supabase successfully")
-        # The rest of the crawling pipeline stays as-is for now.
+
+        # Run business_pages pipeline for each business that has a website
+        import asyncio
+        from urllib.parse import urlparse
+
+        async def run_pipelines():
+            tasks = []
+            for biz in enriched:
+                # biz is a merged Yelp+Google dict according to integration.normalize_for_supabase/upsert
+                biz_id = biz.get("id") or (biz.get("yelp") or {}).get("id")
+                # Prefer Google website if present, else fall back
+                website = (
+                    (biz.get("google_enrichment") or {}).get("website")
+                    or biz.get("website")
+                    or biz.get("url")
+                )
+                if not biz_id or not website:
+                    continue
+                try:
+                    parsed = urlparse(website)
+                    if parsed.scheme not in ("http", "https"):
+                        continue
+                except Exception:
+                    continue
+
+                try:
+                    openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "")
+                    pagespeed_api_key = os.getenv("PAGESPEED_API_KEY", "")
+                    db_url = os.getenv("SUPABASE_URL", "")
+                    pipeline = BusinessPipeline(
+                        openrouter_api_key=openrouter_api_key,
+                        pagespeed_api_key=pagespeed_api_key,
+                        db_url=db_url,
+                        business_id=biz_id,
+                        business_url=website,
+                    )
+                    tasks.append(asyncio.create_task(pipeline.run()))
+                except Exception as e:
+                    logging.exception(f"Failed to schedule pipeline for business {biz_id}: {e}")
+
+            if tasks:
+                await asyncio.gather(*tasks)
+
+        logging.info("Starting business_pages processing for enriched businesses")
+        asyncio.run(run_pipelines())
+        logging.info("Completed business_pages processing")
     elif args.command == "report":
         _ = get_report_config()  # ensure config loads
         if args.pdf:

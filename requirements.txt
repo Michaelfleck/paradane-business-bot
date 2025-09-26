@@ -9,3 +9,5 @@ wordfreq
 phonenumbers
 transformers
 torch
+pytesseract
+Pillow
