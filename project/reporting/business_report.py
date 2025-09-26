@@ -434,17 +434,6 @@ def generateBusinessReport(business_id: str) -> str:
         vals = [v for v in (values or []) if isinstance(v, str) and v.strip()]
         return ", ".join(vals) if vals else ""
 
-    social_facebook = _join_or_blank(socials.get("facebook"))
-    social_instagram = _join_or_blank(socials.get("instagram"))
-    social_twitter = _join_or_blank(socials.get("twitter"))
-    social_linkedin = _join_or_blank(socials.get("linkedin"))
-    social_tiktok = _join_or_blank(socials.get("tiktok"))
-    social_youtube = _join_or_blank(socials.get("youtube"))
-    social_pinterest = _join_or_blank(socials.get("pinterest"))
-    social_whatsapp = _join_or_blank(socials.get("whatsapp"))
-    social_threads = _join_or_blank(socials.get("threads"))
-    social_snapchat = _join_or_blank(socials.get("snapchat"))
-
     # Build socials <li> HTML list from collected platforms
     # Requirement:
     # - Display clickable links but show only @handle text (lowercase)
@@ -562,10 +551,12 @@ def generateBusinessReport(business_id: str) -> str:
     # 9) Build context with "N/A" defaults
     ge: Dict[str, Any] = _safe_get(biz, "google_enrichment", {}) or {}
 
-    def _amenity_label(flag: Optional[bool], yes_text: str, no_text: str) -> str:
+    def _amenity_label(flag, yes_text: str, no_text: str) -> str:
         if flag is None:
-            return "—"
-        return yes_text if bool(flag) else no_text
+            return no_text
+        if isinstance(flag, str):
+            flag = flag.lower() in ('true', '1', 'yes')
+        return yes_text if flag else no_text
 
     # Editorial summary:
     # - Prefer google_enrichment.editorial_summary.overview if available.
@@ -677,7 +668,7 @@ def generateBusinessReport(business_id: str) -> str:
     }
 
     # 10a) Expand Reviews block using google_enrichment.reviews
-    # We render up to 3 reviews into the block between the opening <div class="flex items-start gap-5"> and its closing sibling.
+    # We render reviews into the block between the opening <div class="flex items-start gap-5"> and its closing sibling.
     try:
         reviews = []
         revs = ge.get("reviews")

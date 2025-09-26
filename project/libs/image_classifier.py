@@ -23,22 +23,27 @@ import os
 import string
 from difflib import SequenceMatcher
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from PIL import Image  # Pillow input for HF pipelines that expect PIL.Image
 
+import torch
+
 try:
-    from transformers import pipeline, Pipeline  # type: ignore
+    from transformers import CLIPProcessor, CLIPModel, Pipeline  # type: ignore
 except Exception:  # pragma: no cover
-    pipeline = None
+    CLIPProcessor = None
+    CLIPModel = None
     Pipeline = object  # type: ignore
 
 from project.reporting.config import get_report_config
 
 logger = logging.getLogger("project.libs.image_classifier")
 
-_labels_verbose = ["exterior of building", "interior of building"]
+_labels_verbose = ["exterior of building", "interior of building", "food item"]
 
-_pipeline_singleton: Optional["Pipeline"] = None
+_model_singleton: Optional["CLIPModel"] = None
+_processor_singleton: Optional["CLIPProcessor"] = None
 
 
 def _normalize_text(s: str) -> str:
@@ -101,52 +106,35 @@ class ClassifierError(Exception):
     pass
 
 
-def _get_pipeline() -> "Pipeline":
+def _get_model_and_processor():
     """
-    Lazy-init and memoize the zero-shot image classification pipeline.
+    Lazy-init and memoize the CLIP model and processor for zero-shot image classification.
 
     This loads models locally via transformers. No external HF Hub token is required.
-    If env/token exists it's ignored. We request safetensors to avoid torch.load CVE.
     """
-    global _pipeline_singleton
-    if _pipeline_singleton is not None:
-        return _pipeline_singleton
+    global _model_singleton, _processor_singleton
+    if _model_singleton is not None and _processor_singleton is not None:
+        return _model_singleton, _processor_singleton
 
     cfg = get_report_config()
-    if pipeline is None:
-        raise ClassifierError("transformers.pipeline not available")
+    if CLIPModel is None or CLIPProcessor is None:
+        raise ClassifierError("CLIPModel or CLIPProcessor not available")
 
     model_id = cfg.HF_MODEL_ID
 
-    # Prefer safetensors to avoid torch.load vulnerability requirements.
-    # device=-1 uses CPU. trust_remote_code=False for safety.
-    kwargs = {
-        "task": "zero-shot-image-classification",
-        "model": model_id,
-        "device": -1,
-        "trust_remote_code": False,
-        "use_safetensors": True,
-        "framework": "pt",
-        "model_kwargs": {
-            "low_cpu_mem_usage": True,
-        },
-    }
-
     try:
-        _pipeline_singleton = pipeline(**kwargs)  # type: ignore[arg-type]
+        _model_singleton = CLIPModel.from_pretrained(model_id, torch_dtype=torch.float32, device_map="cpu")
+        _model_singleton = _model_singleton.eval()
+        _processor_singleton = CLIPProcessor.from_pretrained(model_id)
     except Exception as e:
-        logger.exception("Failed to initialize transformers pipeline: %s", e)
-        # Fail-open strategy: if strict mode is not requested, disable classifier to allow reports to proceed.
-        # User can set CLASSIFIER_ENABLED=false or upgrade torch>=2.6 to re-enable.
+        logger.exception("Failed to initialize CLIP model and processor: %s", e)
         if not cfg.CLASSIFIER_ENABLED:
-            # Already disabled by config; just raise to be handled by caller.
             raise ClassifierError("Classifier disabled by config") from e
-        # Auto-disable via environment flag visible to this process only
         os.environ["CLASSIFIER_ENABLED"] = "false"
-        raise ClassifierError("Failed to initialize local HF pipeline") from e
+        raise ClassifierError("Failed to initialize CLIP model") from e
 
-    logger.info("Initialized HF pipeline (local safetensors preferred) model_id=%s", model_id)
-    return _pipeline_singleton
+    logger.info("Initialized CLIP model and processor model_id=%s", model_id)
+    return _model_singleton, _processor_singleton
 
 
 def _download_image_bytes(url: str, timeout_s: float) -> bytes:
@@ -184,13 +172,29 @@ def _download_image_bytes(url: str, timeout_s: float) -> bytes:
     raise last_exc
 
 
+def _classify_with_retry(url: str, timeout_s: Optional[float] = None) -> Dict[str, float]:
+    """Classify with retry logic for multi-threading."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return classify_exterior_interior(url, timeout_s=timeout_s)
+        except Exception as e:
+            last_exc = e
+            try:
+                time.sleep(0.5 * attempt)
+            except Exception:
+                pass
+    assert last_exc is not None
+    raise last_exc
+
+
 def classify_exterior_interior(image_url: str, timeout_s: Optional[float] = None) -> Dict[str, float]:
     """
-    Classify an image URL into exterior vs interior.
+    Classify an image URL into exterior, interior, or food item.
 
     Returns:
-        Dict with scores for keys: 'exterior', 'interior'.
-        Example: {"exterior": 0.82, "interior": 0.15}
+        Dict with scores for keys: 'exterior', 'interior', 'food'.
+        Example: {"exterior": 0.82, "interior": 0.15, "food": 0.03}
     Raises:
         ClassifierError if classifier disabled or inference fails.
     """
@@ -202,30 +206,33 @@ def classify_exterior_interior(image_url: str, timeout_s: Optional[float] = None
     timeout = timeout_s if timeout_s is not None else cfg.CLASSIFIER_TIMEOUT_S
 
     try:
-        pipe = _get_pipeline()
+        model, processor = _get_model_and_processor()
     except ClassifierError as e:
-        # If classifier cannot initialize (e.g., due to torch CVE restrictions), propagate a clear error
         raise
 
     # Download first to enforce our timeout deterministically with retries inside helper
     img_bytes = _download_image_bytes(image_url, timeout)
     img_buf = io.BytesIO(img_bytes)
 
-    # Try inputs in order: PIL.Image -> bytes -> direct URL
-    # Many HF image pipelines prefer PIL.Image as primary input.
+    # Load PIL image
     try:
         pil_img = Image.open(img_buf).convert("RGB")
-        result = pipe(pil_img, candidate_labels=_labels_verbose, multi_label=True)  # type: ignore
-    except Exception as e1:
-        logger.warning("Pipeline input as PIL failed (%s); retrying with bytes", e1)
-        try:
-            img_buf2 = io.BytesIO(img_bytes)  # reset buffer
-            result = pipe(img_buf2, candidate_labels=_labels_verbose, multi_label=True)  # type: ignore
-        except Exception as e2:
-            logger.warning("Pipeline input as bytes failed (%s); retrying with direct URL", e2)
-            result = pipe(image_url, candidate_labels=_labels_verbose, multi_label=True)  # type: ignore
+    except Exception as e:
+        logger.exception("Failed to load PIL image for url=%s", image_url)
+        raise ClassifierError("Failed to load image")
 
-    scores_map: Dict[str, float] = {"exterior": 0.0, "interior": 0.0}
+    # Perform CLIP zero-shot classification
+    try:
+        inputs = processor(text=_labels_verbose, images=pil_img, return_tensors="pt", padding=True)
+        outputs = model(**inputs)
+        logits = outputs.logits_per_image  # shape (1, num_labels)
+        probs = logits.softmax(dim=1).squeeze(0).tolist()
+        result = [{"label": label, "score": score} for label, score in zip(_labels_verbose, probs)]
+    except Exception as e:
+        logger.exception("CLIP classification failed for url=%s", image_url)
+        raise ClassifierError("CLIP classification failed")
+
+    scores_map: Dict[str, float] = {"exterior": 0.0, "interior": 0.0, "food": 0.0}
     try:
         # result can be list of dicts: [{'label': '...', 'score': ...}, ...]
         for item in result:
@@ -235,13 +242,15 @@ def classify_exterior_interior(image_url: str, timeout_s: Optional[float] = None
                 scores_map["exterior"] = max(scores_map["exterior"], score)
             elif "interior" in label:
                 scores_map["interior"] = max(scores_map["interior"], score)
+            elif "food" in label:
+                scores_map["food"] = max(scores_map["food"], score)
     except Exception as e:
         logger.exception("Classifier parsing error: %s", e)
         raise ClassifierError("Classifier output parse failed")
 
     elapsed = (time.time() - t0) * 1000.0
-    logger.info("Classified image ext=%.3f int=%.3f ms=%.1f url=%s",
-                scores_map["exterior"], scores_map["interior"], elapsed, image_url)
+    logger.info("Classified image ext=%.3f int=%.3f food=%.3f ms=%.1f url=%s",
+                scores_map["exterior"], scores_map["interior"], scores_map["food"], elapsed, image_url)
     return scores_map
 
 
@@ -289,92 +298,88 @@ def select_best_photo(photo_urls: List[str], timeout_s: Optional[float] = None, 
         except Exception:
             return ""
 
-    for url in photo_urls:
-        # Try classification with small retry loop to withstand transient timeouts
-        scores = None
-        last_exc: Exception | None = None
-        for attempt in range(3):
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_url = {executor.submit(_classify_with_retry, url, timeout_s): url for url in photo_urls}
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
             try:
-                scores = classify_exterior_interior(url, timeout_s=timeout_s)
+                scores = future.result()
                 any_success = True
-                break
             except Exception as e:
-                last_exc = e
-                logger.warning("Classification attempt %d failed for url=%s err=%s", attempt + 1, url, e)
-                try:
-                    time.sleep(0.5 * attempt)
-                except Exception:
-                    pass
-        if scores is None:
-            logger.warning("Classifier failed for url=%s after retries err=%s; skipping", url, last_exc)
-            continue
+                logger.warning("Classifier failed for url=%s err=%s; skipping", url, e)
+                continue
 
-        ext, inte = scores.get("exterior", 0.0), scores.get("interior", 0.0)
+            ext, inte = scores.get("exterior", 0.0), scores.get("interior", 0.0)
+            food = scores.get("food", 0.0)
 
-        # Compute name match score if business_name provided
-        if business_name:
-            name_match_score = 0.0
-            ocr_text = ""
-            try:
-                timeout = timeout_s if timeout_s is not None else cfg.CLASSIFIER_TIMEOUT_S
-                img_bytes = _download_image_bytes(url, timeout)
-                try:
-                    pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                except Exception:
-                    pil_img = None  # type: ignore
-                if pil_img is not None:
-                    ocr_text = _extract_image_text(pil_img)
-            except Exception as ne:
-                # Concise warning; OCR helper already logs when unavailable internally
-                logger.warning("OCR error for url=%s err=%s; proceeding without text match", url, ne)
+            # Skip images where food item score is the highest
+            if food > ext and food > inte:
+                continue
+
+            # Compute name match score if business_name provided
+            if business_name:
+                name_match_score = 0.0
                 ocr_text = ""
+                try:
+                    timeout = timeout_s if timeout_s is not None else cfg.CLASSIFIER_TIMEOUT_S
+                    img_bytes = _download_image_bytes(url, timeout)
+                    try:
+                        pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    except Exception:
+                        pil_img = None  # type: ignore
+                    if pil_img is not None:
+                        ocr_text = _extract_image_text(pil_img)
+                except Exception as ne:
+                    # Concise warning; OCR helper already logs when unavailable internally
+                    logger.warning("OCR error for url=%s err=%s; proceeding without text match", url, ne)
+                    ocr_text = ""
 
-            url_text = _heuristic_url_text(url)
-            try:
-                sim_ocr = _similarity(ocr_text, business_name)
-            except Exception:
-                sim_ocr = 0.0
-            try:
-                sim_url = _similarity(url_text, business_name)
-            except Exception:
-                sim_url = 0.0
-            name_match_score = max(sim_ocr, sim_url)
-        else:
-            name_match_score = 0.0
+                url_text = _heuristic_url_text(url)
+                try:
+                    sim_ocr = _similarity(ocr_text, business_name)
+                except Exception:
+                    sim_ocr = 0.0
+                try:
+                    sim_url = _similarity(url_text, business_name)
+                except Exception:
+                    sim_url = 0.0
+                name_match_score = max(sim_ocr, sim_url)
+            else:
+                name_match_score = 0.0
 
-        # Apply boosting
-        boosted_ext = min(1.0, ext + 0.10 * name_match_score)
-        boosted_int = min(1.0, inte + 0.05 * name_match_score)
+            # Apply boosting - prioritize exterior over name match
+            boosted_ext = min(1.0, ext + 0.15 * name_match_score)
+            boosted_int = min(1.0, inte + 0.03 * name_match_score)
 
-        # Update raw best
-        if ext > best_ext[0]:
-            best_ext = (ext, url)
-        if inte > best_int[0]:
-            best_int = (inte, url)
+            # Update raw best
+            if ext > best_ext[0]:
+                best_ext = (ext, url)
+            if inte > best_int[0]:
+                best_int = (inte, url)
 
-        # Update boosted best
-        if boosted_ext > best_ext_boosted[0]:
-            best_ext_boosted = (boosted_ext, url)
-        if boosted_int > best_int_boosted[0]:
-            best_int_boosted = (boosted_int, url)
+            # Update boosted best
+            if boosted_ext > best_ext_boosted[0]:
+                best_ext_boosted = (boosted_ext, url)
+            if boosted_int > best_int_boosted[0]:
+                best_int_boosted = (boosted_int, url)
 
-        # New short-circuit: require stronger evidence before immediate selection to avoid false positives
-        # Conditions (ALL must hold):
-        #  - Non-trivial name match (>= 0.35) via OCR/URL heuristic
-        #  - Exterior substantially exceeds interior by (margin + 0.10)
-        #  - Raw exterior confidence itself is at least 0.70
-        if business_name and name_match_score >= 0.35 and (ext - inte) >= (margin + 0.10) and ext >= 0.70:
-            logger.info("Short-circuit on strong exterior-with-name match url=%s name_score=%.2f ext=%.3f int=%.3f", url, name_match_score, ext, inte)
-            return url
+            # New short-circuit: require stronger evidence before immediate selection to avoid false positives
+            # Conditions (ALL must hold):
+            #  - Non-trivial name match (>= 0.35) via OCR/URL heuristic
+            #  - Exterior substantially exceeds interior by (margin + 0.10)
+            #  - Raw exterior confidence itself is at least 0.70
+            if business_name and name_match_score >= 0.35 and (ext - inte) >= (margin + 0.10) and ext >= 0.70:
+                logger.info("Short-circuit on strong exterior-with-name match url=%s name_score=%.2f ext=%.3f int=%.3f food=%.3f", url, name_match_score, ext, inte, food)
+                return url
 
-        # Short-circuit using boosted scores for decisive exterior (tighten threshold slightly)
-        if (boosted_ext - boosted_int) >= (margin + 0.05) and boosted_ext >= 0.88 and ext >= 0.65:
-            logger.info("Short-circuit exterior selection (tight) url=%s ext=%.3f int=%.3f boosted_ext=%.3f boosted_int=%.3f", url, ext, inte, boosted_ext, boosted_int)
-            return url
+            # Short-circuit using boosted scores for decisive exterior (tighten threshold slightly)
+            if (boosted_ext - boosted_int) >= (margin + 0.05) and boosted_ext >= 0.85 and ext >= 0.60:
+                logger.info("Short-circuit exterior selection (tight) url=%s ext=%.3f int=%.3f food=%.3f boosted_ext=%.3f boosted_int=%.3f", url, ext, inte, food, boosted_ext, boosted_int)
+                return url
 
-        # Per-URL log when name provided
-        if business_name:
-            logger.info("Name match score=%.2f boosted_ext=%.2f boosted_int=%.2f url=%s", name_match_score, boosted_ext, boosted_int, url)
+            # Per-URL log when name provided
+            if business_name:
+                logger.info("Name match score=%.2f boosted_ext=%.2f boosted_int=%.2f food=%.3f url=%s", name_match_score, boosted_ext, boosted_int, food, url)
 
     # Post-loop selection with safer preference:
     # 1) Prefer boosted exterior if reasonably confident and advantaged

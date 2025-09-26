@@ -126,6 +126,11 @@ td, th {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Page break utilities */
+.page-break-before {
+  break-before: page;
+}
 /* Remove any footers in print explicitly and any default Playwright footer area */
 footer, .footer, #footer, .report-footer, .page-footer { display: none !important; }
 .playwright-footer, .pdf-footer, .chromium-footer { display: none !important; }
