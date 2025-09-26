@@ -99,7 +99,7 @@ def get_report_config() -> ReportConfig:
     """
     api_key = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_API_KEY")
     size = os.getenv("MAP_DEFAULT_SIZE", "600x400")
-    zoom_str = os.getenv("MAP_DEFAULT_ZOOM", "15")
+    zoom_str = os.getenv("MAP_DEFAULT_ZOOM", "18")
     country = os.getenv("DEFAULT_PHONE_COUNTRY", "US")
 
     # HF / classifier config
