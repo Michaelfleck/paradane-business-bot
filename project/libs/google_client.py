@@ -1,5 +1,6 @@
 import os
 import time
+import requests
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import googlemaps
@@ -32,52 +33,42 @@ class GoogleClient:
 
     def get_place_details(self, place_id: str) -> Dict[str, Any]:
         """
-        Fetch detailed information about a business by Place ID.
+        Fetch detailed information about a business by Place ID using both old and new Places APIs.
         :param place_id: Google Maps Place ID
-        :return: Place details as a dictionary
+        :return: Merged place details as a dictionary
         """
-        # Add retry with exponential backoff
+        merged_details = {}
+
+        # Get details from old API
+        old_details = {}
         for attempt in range(3):
             try:
-                # Request a comprehensive set of supported fields.
-                # Note: googlemaps python client (Places Details) supports a v2-style fields list.
-                # We request broadly to "capture all fields" while staying within supported field names.
                 results = self.client.place(
                     place_id=place_id,
-                    # Restrict to fields supported by googlemaps.places.place (per error message).
                     fields=[
-                        # Identifiers and core
                         "place_id",
                         "name",
                         "business_status",
-                        "type",  # singular per client
-                        # Address
                         "formatted_address",
-                        "address_component",   # valid token (not address_components)
+                        "address_component",
                         "adr_address",
                         "vicinity",
                         "plus_code",
                         "utc_offset",
-                        # Contact
                         "formatted_phone_number",
                         "international_phone_number",
                         "website",
                         "url",
-                        # Location/geometry
-                        "geometry",  # includes subpaths like geometry/location/* and viewport/*
-                        # Hours
+                        "geometry",
                         "opening_hours",
                         "current_opening_hours",
                         "secondary_opening_hours",
-                        # Ratings & reviews
                         "rating",
                         "user_ratings_total",
                         "price_level",
-                        "reviews",  # review is listed but reviews covers collection
-                        # Photos & icons
-                        "photo",    # valid token (not photos)
+                        "reviews",
+                        "photo",
                         "icon",
-                        # Attributes and services
                         "editorial_summary",
                         "reservable",
                         "curbside_pickup",
@@ -94,13 +85,37 @@ class GoogleClient:
                         "permanently_closed",
                     ]
                 )
-                return results.get("result", {})
+                old_details = results.get("result", {})
+                break
             except Exception as e:
                 if attempt < 2:
                     time.sleep(2 ** attempt)
+
+        # Get details from new API
+        new_details = {}
+        for attempt in range(3):
+            try:
+                url = f"https://places.googleapis.com/v1/places/{place_id}"
+                params = {
+                    "fields": "types,primaryTypeDisplayName",
+                    "key": self.api_key
+                }
+                response = requests.get(url, params=params)
+                if response.status_code == 200:
+                    new_details = response.json()
+                    break
                 else:
-                    raise e
-        return {}
+                    pass
+            except Exception as e:
+                pass
+
+        # Merge details: prefer old API for most fields, add new API fields
+        merged_details.update(old_details)
+        if new_details:
+            merged_details['types'] = new_details.get('types', [])
+            merged_details['primaryTypeDisplayName'] = new_details.get('primaryTypeDisplayName', {})
+
+        return merged_details
     
     def enrich_with_google(self, yelp_business: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -136,6 +151,33 @@ class GoogleClient:
 
         enriched = yelp_business.copy()
 
+        # Define generic types to filter out
+        generic_types = {
+            "establishment", "point_of_interest", "food", "drink", "store", "health",
+            "place_of_worship", "locality", "political", "geocode", "premise",
+            "street_address", "intersection", "postal_code", "country",
+            "administrative_area_level_1", "administrative_area_level_2",
+            "administrative_area_level_3", "colloquial_area", "sublocality",
+            "neighborhood", "route", "street_number", "floor", "room"
+        }
+
+        # Get types and type from new API if available, otherwise from search
+        if details.get('types'):
+            actual_types = [t for t in details['types'] if t not in generic_types]
+            enriched['types'] = actual_types
+            primary_type_display = details.get('primaryTypeDisplayName', {}).get('text', '')
+            if primary_type_display:
+                enriched['type'] = primary_type_display
+            else:
+                # Fallback to first actual type
+                enriched['type'] = actual_types[0] if actual_types else None
+        else:
+            # Fallback to search result
+            if 'types' in google_place and google_place['types']:
+                actual_types = [t for t in google_place['types'] if t not in generic_types]
+                enriched['types'] = actual_types
+                enriched['type'] = actual_types[0] if actual_types else None
+
         # Promote a curated subset to top-level only if missing from Yelp,
         # but preserve the full Google payload under google_enrichment.
         promote_fields = [
@@ -148,8 +190,11 @@ class GoogleClient:
             "rating",
             "website",
             "business_status",
-            "type",
         ]
+
+        for field in promote_fields:
+            if field in details and not enriched.get(field):
+                enriched[field] = details[field]
 
         for field in promote_fields:
             if field in details and not enriched.get(field):
