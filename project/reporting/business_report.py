@@ -463,7 +463,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
         if r == 60:
-            label = "—"
+            label = ""
         else:
             label = str(r)
         if r <= 5:
@@ -483,11 +483,13 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         # Outline circle for better contrast
         draw.ellipse([(x_img - RADIUS - 4, y_img - RADIUS - 4), (x_img + RADIUS + 4, y_img + RADIUS + 4)], fill=STROKE)
         draw.ellipse([(x_img - RADIUS, y_img - RADIUS), (x_img + RADIUS, y_img + RADIUS)], fill=color)
-        # Center text horizontally and place baseline at vertical center
-        bbox = draw.textbbox((0, -10), label, font=font)
+        # Center text precisely using bbox offsets (accounting for ascenders/descenders)
+        bbox = draw.textbbox((0, 0), label, font=font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
-        draw.text((x_img - tw / 2, y_img - th / 2), label, fill=WHITE, font=font)
+        offset_x = -bbox[0]
+        offset_y = -bbox[1]
+        draw.text((x_img - tw / 2 + offset_x, y_img - th / 2.5 + offset_y), label, fill=WHITE, font=font)
 
     # Encode to base64 data URL
     buffer = BytesIO()
