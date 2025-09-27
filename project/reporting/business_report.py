@@ -14,6 +14,7 @@ import os
 from urllib.parse import urlencode, quote_plus
 import pathlib
 from datetime import datetime
+import concurrent.futures
 
 from project.reporting.config import get_report_config
 from project.reporting.renderer import render_template, render_list_block, render_indexed_block
@@ -381,7 +382,6 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     # Build fixed 1.0 km grid in geographic coords
     grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=6, grid_cols=7, spacing_km=2.092150000259)
 
-    # Fixed zoom for better visibility
     zoom = 13
 
     # Request a clean static map without markers; we'll draw overlays ourselves
@@ -418,7 +418,6 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     def _pixel_xy_to_point(px: float, py: float, center_px: float, center_py: float, img_w: int, img_h: int) -> Tuple[int, int]:
         dx = px - center_px
         dy = py - center_py
-        # Place center at image center
         x_img = int(img_w / 2 + dx)
         y_img = int(img_h / 2 + dy)
         return x_img, y_img
@@ -430,22 +429,52 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     client = GoogleClient()
     ranks: List[int] = []
     competitors_per_point: List[List[Dict[str, Any]]] = []
-    for lat, lng in grid_positions:
+
+    def search_position(lat_lng):
+        lat, lng = lat_lng
         try:
-            comps = client.search_competitors_in_category(category, lat, lng)
-            competitors_per_point.append(comps)
-            rank = 0
-            for i, comp in enumerate(comps):
+            # Text search
+            comps_text = client.search_competitors_in_category(category, lat, lng, search_type='text')
+            rank_text = 0
+            for i, comp in enumerate(comps_text):
                 if comp.get("place_id") == target_place_id:
-                    rank = i + 1
+                    rank_text = i + 1
                     break
-            if rank == 0 or rank > 20:
-                rank = 21  # will display as 20+
-            ranks.append(rank)
+            if rank_text == 0 or rank_text > 20:
+                rank_text = 21
+
+            # Nearby search
+            comps_nearby = client.search_competitors_in_category(category, lat, lng, search_type='nearby')
+            rank_nearby = 0
+            for i, comp in enumerate(comps_nearby):
+                if comp.get("place_id") == target_place_id:
+                    rank_nearby = i + 1
+                    break
+            if rank_nearby == 0 or rank_nearby > 20:
+                rank_nearby = 21
+
+            # Average ranks
+            if rank_text != 21 and rank_nearby != 21:
+                rank = int(round((rank_text + rank_nearby) / 2.0))
+            elif rank_text != 21:
+                rank = rank_text
+            elif rank_nearby != 21:
+                rank = rank_nearby
+            else:
+                rank = 21
+
+            logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, nearby_rank={rank_nearby}, final_rank={rank}")
+            return comps_text, rank
         except Exception as e:
             logger.warning(f"Error getting rank at {lat},{lng}: {e}")
-            competitors_per_point.append([])
-            ranks.append(21)  # 20+
+            return [], 21
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(search_position, grid_positions))
+
+    competitors_per_point = [r[0] for r in results]
+    ranks = [r[1] for r in results]
+    logger.info(f"Category '{category}': ranks = {ranks}")
 
     # Style constants - same size for all bubbles
     RADIUS = 35

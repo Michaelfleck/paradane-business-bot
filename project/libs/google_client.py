@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import logging
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import googlemaps
@@ -9,6 +10,8 @@ import googlemaps
 load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+logger = logging.getLogger("project.libs.google_client")
 
 
 class GoogleClient:
@@ -83,6 +86,7 @@ class GoogleClient:
                         "serves_wine",
                         "serves_brunch",
                         "permanently_closed",
+                        "types",
                     ]
                 )
                 old_details = results.get("result", {})
@@ -109,10 +113,12 @@ class GoogleClient:
             except Exception as e:
                 pass
 
-        # Merge details: prefer old API for most fields, add new API fields
+        # Merge details: prefer old API for most fields, combine types from both APIs
         merged_details.update(old_details)
         if new_details:
-            merged_details['types'] = new_details.get('types', [])
+            old_types = merged_details.get('types', [])
+            new_types = new_details.get('types', [])
+            merged_details['types'] = list(set(old_types + new_types))
             merged_details['primaryTypeDisplayName'] = new_details.get('primaryTypeDisplayName', {})
 
         return merged_details
@@ -205,20 +211,27 @@ class GoogleClient:
         """Enrich a batch of Yelp businesses using Google Places API."""
         return [self.enrich_with_google(business) for business in businesses]
 
-    def search_competitors_in_category(self, category: str, lat: float, lng: float, radius: int = 1000) -> List[Dict[str, Any]]:
+    def search_competitors_in_category(self, category: str, lat: float, lng: float, search_type: str = 'text') -> List[Dict[str, Any]]:
         """
         Search for businesses in a specific category within a radius around a location.
         :param category: Category name (e.g., "restaurant")
         :param lat: Latitude of center point
         :param lng: Longitude of center point
-        :param radius: Search radius in meters (default 1000)
+        :param search_type: 'text' for Text Search, 'nearby' for Nearby Search
         :return: List of competitor businesses
         """
         try:
-            results = self.client.places(query=category, location=(lat, lng), radius=radius)
-            return results.get("results", [])
+            logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}, search_type={search_type}")
+            if search_type == 'nearby':
+                results = self.client.places_nearby(location=(lat, lng), type='restaurant', rank_by='prominence', radius=1000)
+            else:  # 'text' or default
+                results = self.client.places(query=category, location=(lat, lng), radius=1000)
+            competitors = results.get("results", [])
+            place_ids = [comp.get("place_id") for comp in competitors[:5]]  # Log first 5 place_ids
+            logger.debug(f"Found {len(competitors)} competitors, first 5 place_ids: {place_ids}")
+            return competitors
         except Exception as e:
-            print(f"Error searching competitors for {category}: {e}")
+            logger.error(f"Error searching competitors for {category}: {e}")
             return []
     
     @staticmethod

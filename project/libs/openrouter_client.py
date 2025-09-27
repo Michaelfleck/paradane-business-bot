@@ -102,7 +102,7 @@ def generate_rank_summary(data: dict) -> str:
         "Create a comprehensive, readable summary based on the provided data. "
         "Include key insights on visibility, competitors, and strategic recommendations. "
         "Keep it professional, factual, human-written and suitable for business reports. "
-        "Structure it in one paragraph with clear section. "
+        "Structure it in one paragraph with clear section (200 words maximum). "
         "No markdown formatting, no section titles, just one paragraph."
     )
 
@@ -135,7 +135,7 @@ Focus on:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=200,
+                max_tokens=250,
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
