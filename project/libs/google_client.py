@@ -239,20 +239,41 @@ class GoogleClient:
     def search_competitors_in_category(self, category: str, lat: float, lng: float) -> List[Dict[str, Any]]:
         """
         Search for businesses in a specific category within a radius around a location.
+        Fetches up to 3 pages (60 results) to ensure comprehensive coverage.
         :param category: Category name (e.g., "restaurant")
         :param lat: Latitude of center point
         :param lng: Longitude of center point
-        :param radius: Search radius in meters
         :return: List of competitor businesses
         """
         # Normalize category: lowercase and replace spaces with underscores
         try:
             logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}")
-            results = self.client.places_nearby(location=(lat, lng), keyword=category, rank_by="distance")
-            competitors = results.get("results", [])
-            place_ids = [comp.get("place_id") for comp in competitors[:5]]  # Log first 5 place_ids
-            logger.debug(f"Found {len(competitors)} competitors, first 5 place_ids: {place_ids}")
-            return competitors
+            all_competitors = []
+            page_token = None
+            max_pages = 3
+
+            for page in range(max_pages):
+                if page == 0:
+                    results = self.client.places_nearby(location=(lat, lng), keyword=category, rank_by="distance")
+                else:
+                    if not page_token:
+                        break
+                    # Wait a bit before using next_page_token as recommended by Google
+                    time.sleep(2)
+                    results = self.client.places_nearby(page_token=page_token)
+
+                competitors = results.get("results", [])
+                all_competitors.extend(competitors)
+                page_token = results.get("next_page_token")
+
+                logger.debug(f"Page {page + 1}: Found {len(competitors)} competitors")
+
+                if not page_token:
+                    break
+
+            place_ids = [comp.get("place_id") for comp in all_competitors[:5]]  # Log first 5 place_ids
+            logger.debug(f"Total found {len(all_competitors)} competitors across {page + 1} pages, first 5 place_ids: {place_ids}")
+            return all_competitors
         except Exception as e:
             logger.error(f"Error searching competitors for {category}: {e}")
             return []

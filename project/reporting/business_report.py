@@ -341,35 +341,13 @@ def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: i
             positions.append((lat, lng))
     return positions
 
-
-def _get_rank_color_size(rank: int) -> Tuple[str, str]:
-    """
-    Get color and size for a given rank.
-    Colors: green for 1-5, yellow for 6-15, red for 16+
-    Sizes: large for 1-5, mid for 6-10, small for 11-15, tiny for 16+
-    """
-    if rank <= 5:
-        color = "green"
-        size = "large"
-    elif rank <= 10:
-        color = "yellow"
-        size = "mid"
-    elif rank <= 15:
-        color = "yellow"
-        size = "small"
-    else:
-        color = "red"
-        size = "tiny"
-    return color, size
-
-
 def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, target_place_id: str) -> Tuple[Optional[str], float, List[Optional[int]], List[Tuple[float, float]], List[List[Dict[str, Any]]]]:
     """
     Build a heatmap-like image:
       - Base: Google Static Map with dynamic zoom to fit the 7x7 grid
       - Overlay: 7x7 bubbles spaced exactly approximately 1.666 miles apart
-      - Each bubble shows the rank at that location; ranks > 20 or not found display '20+'
-      - Bubble color: green 1-5, yellow 6-15, red 16+
+      - Each bubble shows the rank at that location; ranks up to 60
+      - Bubble color: green 1-15, yellow 16-30, orange 31-45, red 46+
     Returns a tuple of (data URL of the composed PNG, average rank, ranks list, grid_positions, competitors_per_point).
     """
     import math
@@ -449,13 +427,13 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
                 if comp.get("place_id") == target_place_id:
                     rank_text = i + 1
                     break
-            rank = rank_text if rank_text != 0 and rank_text <= 20 else None
+            rank = rank_text if rank_text != 0 else 60
 
             logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, final_rank={rank}")
             return comps_text, rank
         except Exception as e:
             logger.warning(f"Error getting rank at {lat},{lng}: {e}")
-            return [], None
+            return [], 60
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(search_position, grid_positions))
@@ -484,9 +462,10 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
             font = ImageFont.load_default()
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
-        if r is None:
-            return (RED, "")
-        label = "" if r > 20 else str(r)
+        if r == 60:
+            label = ""
+        else:
+            label = str(r)
         if r <= 5:
             return (GREEN, label)
         elif r <= 10:
@@ -1132,9 +1111,8 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                 direction = get_direction(grid_lat, grid_lng, lat, lng)
                 if direction not in direction_ranks:
                     direction_ranks[direction] = []
-                if rank is not None:
-                    direction_ranks[direction].append(rank)
-                if rank is None or rank > 10:
+                direction_ranks[direction].append(rank)
+                if rank > 20:
                     low_visibility_points.append(direction)
 
             # Calculate average rank by direction
@@ -1197,11 +1175,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             valid_ranks = [r for r in ranks if r is not None]
             if valid_ranks:
                 rank_counts = Counter(valid_ranks)
-                rank_counts = {k: v for k, v in rank_counts.items() if k <= 20}
-                # Ensure all ranks from 1 to 20 are included, even with count 0
-                for r in range(1, 21):
-                    if r not in rank_counts:
-                        rank_counts[r] = 0
+                rank_counts = {k: v for k, v in rank_counts.items() if k <= 60}
                 ranks_sorted = sorted(rank_counts.keys())
                 counts = [rank_counts[r] for r in ranks_sorted]
                 labels = [str(r) for r in ranks_sorted]

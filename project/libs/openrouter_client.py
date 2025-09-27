@@ -132,6 +132,8 @@ Key Data:
 {chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_10_competitors', [])])}
 - Current business reviews: Google reviews {data.get('current_reviews', {}).get('google', 'N/A')}
 
+Note: Rank 60 indicates no ranking found at that location.
+
 Focus on:
 Grid size and gap distance as the basis for analysis. Overall visibility and ranking performance with specific metrics (average rank, visibility coverage, valid rankings count). Geographic patterns and directional performance variations. Key competitors and their strengths. Areas with low visibility and strategic implications. Review volume comparison. Actionable strategic insights based on geographic data.
 """
