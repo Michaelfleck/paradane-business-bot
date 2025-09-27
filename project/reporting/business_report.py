@@ -379,7 +379,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     cfg = get_report_config()
     if not cfg.GOOGLE_API_KEY:
-        return TRANSPARENT_GIF_DATA_URL, 21.0
+        return TRANSPARENT_GIF_DATA_URL, None
 
     # Parse desired size WxH (e.g., "600x400")
     try:
@@ -410,7 +410,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         img = Image.open(BytesIO(resp.content)).convert("RGBA")
     except Exception as e:
         logger.warning(f"Failed to fetch base map: {e}")
-        return TRANSPARENT_GIF_DATA_URL, 21.0, [], [], []
+        return TRANSPARENT_GIF_DATA_URL, None, [], [], []
 
     draw = ImageDraw.Draw(img)
 
@@ -485,8 +485,8 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
         if r is None:
-            return (RED, "21+")
-        label = "21+" if r > 20 else str(r)
+            return (RED, "")
+        label = "" if r > 20 else str(r)
         if r <= 5:
             return (GREEN, label)
         elif r <= 10:
@@ -515,8 +515,8 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     img.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     data_url = f"data:image/png;base64,{encoded}"
-    ranks_for_avg = [r if r is not None else 21 for r in ranks]
-    average_rank = sum(ranks_for_avg) / len(ranks_for_avg) if ranks_for_avg else 21.0
+    valid_ranks_for_avg = [r for r in ranks if r is not None]
+    average_rank = sum(valid_ranks_for_avg) / len(valid_ranks_for_avg) if valid_ranks_for_avg else None
     return data_url, average_rank, ranks, grid_positions, competitors_per_point
 
 
@@ -1038,7 +1038,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             map_image, avg_rank, ranks, grid_positions, competitors_per_point = _build_heatmap_map_url(lat, lng, category, target_place_id)
         else:
             map_image = TRANSPARENT_GIF_DATA_URL
-            avg_rank = 21.0
+            avg_rank = None
             ranks = []
             grid_positions = []
             competitors_per_point = []
@@ -1054,8 +1054,8 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         type_data = list(executor.map(process_category, category_list))
-        # Filter out categories where all balls have no rank (avg_rank == 21.0)
-        type_data = [d for d in type_data if d["average_rank"] != 21.0]
+        # Filter out categories where all balls have no rank (avg_rank is None)
+        type_data = [d for d in type_data if d["average_rank"] is not None]
         type_data.sort(key=lambda x: x["average_rank"])
 
         # Collect overall top-5 competitors across all map points
@@ -1120,7 +1120,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
 
             # Calculate enhanced geographic insights
             valid_ranks = [r for r in ranks if r is not None]
-            average_rank = sum(valid_ranks) / len(valid_ranks) if valid_ranks else 21.0
+            average_rank = sum(valid_ranks) / len(valid_ranks) if valid_ranks else None
             visibility_coverage = len(valid_ranks) / len(ranks) * 100 if ranks else 0
             top_positions = sum(1 for r in ranks if r == 1)
 
@@ -1143,9 +1143,25 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                 if dir_ranks:
                     direction_averages[dir_name] = sum(dir_ranks) / len(dir_ranks)
 
-            # Identify best and worst performing directions
-            best_direction = min(direction_averages.items(), key=lambda x: x[1]) if direction_averages else ("N/A", 21.0)
-            worst_direction = max(direction_averages.items(), key=lambda x: x[1]) if direction_averages else ("N/A", 21.0)
+            # Minimum threshold for valid directions (configurable, default 5)
+            min_valid_ranks = 5
+
+            # Create list of (direction, average, count)
+            direction_stats = [(dir_name, avg, len(direction_ranks[dir_name])) for dir_name, avg in direction_averages.items()]
+
+            # Filter directions with enough data
+            valid_directions = [stat for stat in direction_stats if stat[2] >= min_valid_ranks]
+
+            if valid_directions:
+                # Best: lowest average, then highest count
+                best_stat = min(valid_directions, key=lambda x: (x[1], -x[2]))
+                best_direction = (best_stat[0], best_stat[1])
+                # Worst: highest average, then highest count
+                worst_stat = max(valid_directions, key=lambda x: (x[1], -x[2]))
+                worst_direction = (worst_stat[0], worst_stat[1])
+            else:
+                best_direction = ("N/A", 'N/A')
+                worst_direction = ("N/A", 'N/A')
 
             summary_data = {
                 "category": category,
@@ -1178,7 +1194,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
         # Generate rank distribution charts
         for item in type_data:
             ranks = item["ranks"]
-            valid_ranks = [r if r is not None else 21 for r in ranks]
+            valid_ranks = [r for r in ranks if r is not None]
             if valid_ranks:
                 rank_counts = Counter(valid_ranks)
                 rank_counts = {k: v for k, v in rank_counts.items() if k <= 20}

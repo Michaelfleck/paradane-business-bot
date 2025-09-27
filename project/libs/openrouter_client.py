@@ -113,19 +113,19 @@ def generate_rank_summary(data: dict) -> str:
     )
 
     user_prompt = f"""
-Start with: 'Based on a {data.get('grid_size', 56)}-point grid with {data.get('gap_miles', 'N/A')} miles between points and {data.get('valid_rankings_count', 0)} valid rankings out of {data.get('grid_size', 56)} points, ...' Then provide the summary.
+Start with: 'Based on this grid with {data.get('gap_miles', 'N/A')} miles between points, and {data.get('valid_rankings_count', 0)} valid rankings in {data.get('grid_size', 56)} areas, ...' Then provide the summary.
 
 Generate a summary for the business ranking in the category: {data.get('category', 'N/A')}
 
 Key Data:
 - Grid Size: {data.get('grid_size', 56)} points
 - Gap Distance: {data.get('gap_miles', 'N/A')} miles between points
-- Valid Rankings Count: {data.get('valid_rankings_count', 0)}
+- Ranked In: {data.get('valid_rankings_count', 0)} areas
 - Average Rank: {data.get('average_rank', 'N/A'):.2f}
 - Visibility Coverage: {data.get('visibility_coverage', 0):.1f}% of grid points have rankings
 - Top Positions (#1 ranks): {data.get('top_positions', 0)} points
-- Best performing direction: {data.get('best_direction', 'N/A')} (avg rank: {data.get('best_direction_rank', 'N/A'):.2f})
-- Worst performing direction: {data.get('worst_direction', 'N/A')} (avg rank: {data.get('worst_direction_rank', 'N/A'):.2f})
+- Best performing direction: {data.get('best_direction', 'N/A')} (avg rank: {data.get('best_direction_rank', 'N/A') if isinstance(data.get('best_direction_rank', 'N/A'), str) else f"{data.get('best_direction_rank', 'N/A'):.2f}"})
+- Worst performing direction: {data.get('worst_direction', 'N/A')} (avg rank: {data.get('worst_direction_rank', 'N/A') if isinstance(data.get('worst_direction_rank', 'N/A'), str) else f"{data.get('worst_direction_rank', 'N/A'):.2f}"})
 - Direction averages: {', '.join([f"{dir}: {avg:.2f}" for dir, avg in data.get('direction_averages', {}).items()])}
 - Low visibility directions (rank > 10): {', '.join(set(data.get('low_visibility_points', [])))}
 - Top 10 competitors (by average rank):
