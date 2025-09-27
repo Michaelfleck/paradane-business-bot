@@ -515,8 +515,8 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     img.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     data_url = f"data:image/png;base64,{encoded}"
-    ranks_valid = [r for r in ranks if r is not None]
-    average_rank = sum(ranks_valid) / len(ranks_valid) if ranks_valid else 21.0
+    ranks_for_avg = [r if r is not None else 21 for r in ranks]
+    average_rank = sum(ranks_for_avg) / len(ranks_for_avg) if ranks_for_avg else 21.0
     return data_url, average_rank, ranks, grid_positions, competitors_per_point
 
 
@@ -1155,6 +1155,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                 "ranks": ",".join(str(r) if r is not None else "" for r in ranks),
                 "average_rank": average_rank,
                 "visibility_coverage": visibility_coverage,
+                "valid_rankings_count": len(valid_ranks),
                 "top_positions": top_positions,
                 "direction_averages": direction_averages,
                 "best_direction": best_direction[0],

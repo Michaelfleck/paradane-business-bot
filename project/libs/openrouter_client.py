@@ -105,6 +105,7 @@ def generate_rank_summary(data: dict) -> str:
     system_instruction = (
         "You are a business intelligence analyst generating professional summaries for local business ranking reports. "
         "Create a comprehensive, readable summary based on the provided data. "
+        "Always include grid size, gap distance, average rank, and visibility coverage. "
         "Include key insights on visibility, competitors, and no strategic recommendations, just facts. "
         "Keep it brief, professional, factual and straight to the point, suitable for business reports. "
         "Structure it in one paragraph with clear section (150 words maximum). "
@@ -112,11 +113,14 @@ def generate_rank_summary(data: dict) -> str:
     )
 
     user_prompt = f"""
+Start with: 'Based on a {data.get('grid_size', 56)}-point grid with {data.get('gap_miles', 'N/A')} miles between points and {data.get('valid_rankings_count', 0)} valid rankings out of {data.get('grid_size', 56)} points, ...' Then provide the summary.
+
 Generate a summary for the business ranking in the category: {data.get('category', 'N/A')}
 
 Key Data:
 - Grid Size: {data.get('grid_size', 56)} points
 - Gap Distance: {data.get('gap_miles', 'N/A')} miles between points
+- Valid Rankings Count: {data.get('valid_rankings_count', 0)}
 - Average Rank: {data.get('average_rank', 'N/A'):.2f}
 - Visibility Coverage: {data.get('visibility_coverage', 0):.1f}% of grid points have rankings
 - Top Positions (#1 ranks): {data.get('top_positions', 0)} points
@@ -129,12 +133,7 @@ Key Data:
 - Current business reviews: Google reviews {data.get('current_reviews', {}).get('google', 'N/A')}
 
 Focus on:
-- Overall visibility and ranking performance with specific metrics
-- Geographic patterns and directional performance variations
-- Key competitors and their strengths
-- Areas with low visibility and strategic implications
-- Review volume comparison
-- Actionable strategic insights based on geographic data
+Grid size and gap distance as the basis for analysis. Overall visibility and ranking performance with specific metrics (average rank, visibility coverage, valid rankings count). Geographic patterns and directional performance variations. Key competitors and their strengths. Areas with low visibility and strategic implications. Review volume comparison. Actionable strategic insights based on geographic data.
 """
     
     import time
