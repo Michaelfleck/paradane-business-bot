@@ -86,7 +86,7 @@ class GoogleClient:
                         "serves_wine",
                         "serves_brunch",
                         "permanently_closed",
-                        "types",
+                        "types"
                     ]
                 )
                 old_details = results.get("result", {})
@@ -101,7 +101,7 @@ class GoogleClient:
             try:
                 url = f"https://places.googleapis.com/v1/places/{place_id}"
                 params = {
-                    "fields": "types,primaryTypeDisplayName",
+                    "fields": "types,primaryTypeDisplayName,displayName,shortFormattedAddress,googleMapsUri,parkingOptions,paymentOptions,accessibilityOptions,amenities",
                     "key": self.api_key
                 }
                 response = requests.get(url, params=params)
@@ -113,12 +113,10 @@ class GoogleClient:
             except Exception as e:
                 pass
 
-        # Merge details: prefer old API for most fields, combine types from both APIs
+        # Merge details: prefer old API for most fields, add new API fields
         merged_details.update(old_details)
         if new_details:
-            old_types = merged_details.get('types', [])
-            new_types = new_details.get('types', [])
-            merged_details['types'] = list(set(old_types + new_types))
+            merged_details['types'] = new_details.get('types', [])
             merged_details['primaryTypeDisplayName'] = new_details.get('primaryTypeDisplayName', {})
 
         return merged_details
