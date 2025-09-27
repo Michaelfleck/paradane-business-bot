@@ -463,7 +463,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
         if r == 60:
-            label = ""
+            label = "—"
         else:
             label = str(r)
         if r <= 5:
