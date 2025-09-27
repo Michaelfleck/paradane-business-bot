@@ -316,7 +316,7 @@ def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optiona
     return "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
 
 
-def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 6, grid_cols: int = 7, spacing_km: float = 1.60934) -> List[Tuple[float, float]]:
+def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 7, grid_cols: int = 7, spacing_km: float = 1.60934) -> List[Tuple[float, float]]:
     """
     Calculate lat/lng positions for a grid_rows x grid_cols grid centered on center_lat, center_lng.
     Uses fixed spacing_km between adjacent bubbles in both axes (default 1.60934 km).
@@ -390,7 +390,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     # Build fixed approximately 1.666 miles grid in geographic coords
     spacing_km = 1.666 * 1.60934
-    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=8, spacing_km=spacing_km)
+    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=7, spacing_km=spacing_km)
 
     zoom = 12
 
