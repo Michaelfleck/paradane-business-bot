@@ -315,31 +315,10 @@ def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optiona
     return "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
 
 
-def _get_competitors_and_rank(biz: Dict[str, Any], category: str) -> Tuple[List[Dict[str, Any]], int]:
-    """
-    Get competitors for a category within 1km and determine the target business's rank.
-    Returns (competitors_list, rank) where rank is 0 if not found.
-    """
-    lat, lng = _resolve_coords(biz, {})
-    if lat is None or lng is None:
-        return [], 0
-    from project.libs.google_client import GoogleClient
-    client = GoogleClient()
-    competitors = client.search_competitors_in_category(category, lat, lng)
-    target_place_id = _safe_get(biz, "google_enrichment.place_id")
-    rank = 0
-    if target_place_id:
-        for i, comp in enumerate(competitors):
-            if comp.get("place_id") == target_place_id:
-                rank = i + 1
-                break
-    return competitors, rank
-
-
-def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 6, grid_cols: int = 7, spacing_km: float = 2.092150000259) -> List[Tuple[float, float]]:
+def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 6, grid_cols: int = 7, spacing_km: float = 1.60934) -> List[Tuple[float, float]]:
     """
     Calculate lat/lng positions for a grid_rows x grid_cols grid centered on center_lat, center_lng.
-    Uses fixed spacing_km between adjacent bubbles in both axes (default 2.092150000259 km).
+    Uses fixed spacing_km between adjacent bubbles in both axes (default 1.60934 km).
     Returns list of (lat, lng) tuples in row-major order.
     """
     import math
@@ -386,8 +365,8 @@ def _get_rank_color_size(rank: int) -> Tuple[str, str]:
 def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, target_place_id: str) -> Tuple[Optional[str], float, List[int], List[Tuple[float, float]], List[List[Dict[str, Any]]]]:
     """
     Build a heatmap-like image:
-      - Base: Google Static Map with dynamic zoom to fit the 6x7 grid
-      - Overlay: 6x7 bubbles spaced exactly 1.0 km apart
+      - Base: Google Static Map with dynamic zoom to fit the 7x7 grid
+      - Overlay: 7x7 bubbles spaced exactly approximately 1.666 miles apart
       - Each bubble shows the rank at that location; ranks > 20 or not found display '20+'
       - Bubble color: green 1-5, yellow 6-15, red 16+
     Returns a tuple of (data URL of the composed PNG, average rank, ranks list, grid_positions, competitors_per_point).
@@ -408,10 +387,13 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     except Exception:
         width, height = 1000, 1000
 
-    # Build fixed 1.0 km grid in geographic coords
-    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=6, grid_cols=7, spacing_km=2.092150000259)
+    # Build fixed approximately 1.666 miles grid in geographic coords
+    spacing_km = 1.666 * 1.60934
+    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=7, spacing_km=spacing_km)
+    # Set radius to 5.0 miles (8046 meters)
+    radius = 8046
 
-    zoom = 13
+    zoom = 12
 
     # Request a clean static map without markers; we'll draw overlays ourselves
     params = {
@@ -463,7 +445,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         lat, lng = lat_lng
         try:
             # Text search
-            comps_text = client.search_competitors_in_category(category, lat, lng, search_type='text')
+            comps_text = client.search_competitors_in_category(category, lat, lng, radius=radius)
             rank_text = 0
             for i, comp in enumerate(comps_text):
                 if comp.get("place_id") == target_place_id:
@@ -472,27 +454,9 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
             if rank_text == 0 or rank_text > 20:
                 rank_text = 21
 
-            # Nearby search
-            comps_nearby = client.search_competitors_in_category(category, lat, lng, search_type='nearby')
-            rank_nearby = 0
-            for i, comp in enumerate(comps_nearby):
-                if comp.get("place_id") == target_place_id:
-                    rank_nearby = i + 1
-                    break
-            if rank_nearby == 0 or rank_nearby > 20:
-                rank_nearby = 21
+            rank = rank_text
 
-            # Average ranks
-            if rank_text != 21 and rank_nearby != 21:
-                rank = int(round((rank_text + rank_nearby) / 2.0))
-            elif rank_text != 21:
-                rank = rank_text
-            elif rank_nearby != 21:
-                rank = rank_nearby
-            else:
-                rank = 21
-
-            logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, nearby_rank={rank_nearby}, final_rank={rank}")
+            logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, final_rank={rank}")
             return comps_text, rank
         except Exception as e:
             logger.warning(f"Error getting rank at {lat},{lng}: {e}")
@@ -506,13 +470,13 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     logger.info(f"Category '{category}': ranks = {ranks}")
 
     # Style constants - same size for all bubbles
-    RADIUS = 35
+    RADIUS = 25
     # Colors with 90% opacity
     GREEN = (20, 132, 50, 229)
     YELLOW = (244, 180, 0, 229)
     RED = (210, 43, 43, 229)
     WHITE = (255, 255, 255, 255)
-    STROKE = (255, 255, 255, 230)
+    STROKE = (255, 255, 255, 255)
 
     # Font: use default if no TTF available
     try:
@@ -521,12 +485,12 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         font = ImageFont.load_default()
 
     def _color_for_rank(r: int) -> Tuple[Tuple[int, int, int, int], str]:
-        label = "20+" if r >= 20 else str(r)
+        label = "20+" if r > 20 else str(r)
         if r <= 5:
             return (GREEN, label)
         elif r <= 10:
             return (YELLOW, label)
-        elif r <= 15:
+        elif r <= 20:
             return (YELLOW, label)
         else:
             return (RED, label)
@@ -1051,9 +1015,12 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
     google_place_total_reviews = _safe_get(biz, "google_enrichment.user_ratings_total") or _safe_get(biz, "user_ratings_total") or "N/A"
     current_reviews = {"yelp": yelp_total_reviews, "google": google_place_total_reviews}
 
+    # Define spacing for grid
+    spacing_km = 1.666 * 1.60934
+
     # Calculate gap distance in miles
-    gap_km = 2.092150000259
-    gap_miles = gap_km * 0.621371
+    gap_km = spacing_km
+    gap_miles = gap_km / 1.60934
     gap_miles_str = f"{gap_miles:.6f}"
 
     # Prepare data for each category - multi-threaded
@@ -1137,8 +1104,8 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             else:
                 return "center"
 
-        # Generate summaries for each category
-        for item in type_data:
+        # Generate summaries for each category - multi-threaded
+        def generate_summary_for_item(item):
             category = item["BUSINESS_TYPE[INDEX]_NAME"]
             ranks = item["ranks"]
             grid_positions = item["grid_positions"]
@@ -1158,6 +1125,12 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                 "current_reviews": current_reviews,
             }
             summary = generate_rank_summary(summary_data)
+            return summary
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            summaries = list(executor.map(generate_summary_for_item, type_data))
+
+        for item, summary in zip(type_data, summaries):
             item["BUSINESS_TYPE[INDEX]_SUMMARY"] = summary
 
     # Render indexed block
@@ -1239,37 +1212,6 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
     if to_path is None:
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-rank-local-{business_id}-{ts}.pdf")
-
-    # Render to local file
-    base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
-    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
-
-    # Upload if requested (default to config)
-    do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
-    if do_upload:
-        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
-
-    return to_path
-
-
-def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
-    """
-    Render the Business Report PDF for a given business_id.
-
-    Returns:
-        str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
-    """
-    cfg = get_report_config()
-    html = generateBusinessReport(business_id)
-    # Inject precompiled Tailwind and print CSS
-    html_with_styles = _inject_report_styles(html)
-
-    # Determine output path
-    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
-    os.makedirs(out_dir, exist_ok=True)
-    if to_path is None:
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
 
     # Render to local file
     base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets

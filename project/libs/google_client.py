@@ -236,21 +236,19 @@ class GoogleClient:
         """Enrich a batch of Yelp businesses using Google Places API."""
         return [self.enrich_with_google(business) for business in businesses]
 
-    def search_competitors_in_category(self, category: str, lat: float, lng: float, search_type: str = 'text') -> List[Dict[str, Any]]:
+    def search_competitors_in_category(self, category: str, lat: float, lng: float, radius: int = 1000) -> List[Dict[str, Any]]:
         """
         Search for businesses in a specific category within a radius around a location.
         :param category: Category name (e.g., "restaurant")
         :param lat: Latitude of center point
         :param lng: Longitude of center point
-        :param search_type: 'text' for Text Search, 'nearby' for Nearby Search
+        :param radius: Search radius in meters
         :return: List of competitor businesses
         """
+        # Normalize category: lowercase and replace spaces with underscores
         try:
-            logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}, search_type={search_type}")
-            if search_type == 'nearby':
-                results = self.client.places_nearby(location=(lat, lng), type='restaurant', rank_by='prominence', radius=1000)
-            else:  # 'text' or default
-                results = self.client.places(query=category, location=(lat, lng), radius=1000)
+            logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}, radius={radius}")
+            results = self.client.places_nearby(location=(lat, lng), keyword=category, rank_by="distance")
             competitors = results.get("results", [])
             place_ids = [comp.get("place_id") for comp in competitors[:5]]  # Log first 5 place_ids
             logger.debug(f"Found {len(competitors)} competitors, first 5 place_ids: {place_ids}")

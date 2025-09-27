@@ -42,6 +42,8 @@ def classify_page(url: str, summary: str) -> str:
                 max_tokens=5,
             )
             classification = resp.choices[0].message.content.strip()
+            if not classification:
+                raise ValueError("Empty response from OpenRouter")
             if " " in classification or "\n" in classification or not classification.isalpha():
                 return "Other"
             return classification
@@ -84,7 +86,10 @@ def summarize_page(url: str, content: str) -> str:
                 ],
                 max_tokens=100,
             )
-            return resp.choices[0].message.content.strip()
+            content = resp.choices[0].message.content.strip()
+            if not content:
+                raise ValueError("Empty response from OpenRouter")
+            return content
         except Exception as e:
             logger.error(f"Error summarizing page {url} (attempt {attempt+1}/3): {e}", exc_info=True)
             if attempt < 2:
@@ -102,7 +107,8 @@ def generate_rank_summary(data: dict) -> str:
         "Create a comprehensive, readable summary based on the provided data. "
         "Include key insights on visibility, competitors, and strategic recommendations. "
         "Keep it professional, factual, human-written and suitable for business reports. "
-        "Structure it in one paragraph with clear section (200 words maximum). "
+        "Keep it straight to the point. "
+        "Structure it in one paragraph with clear section (100 words maximum). "
         "No markdown formatting, no section titles, just one paragraph."
     )
 
@@ -135,9 +141,12 @@ Focus on:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=250,
+                max_tokens=200,
             )
-            return resp.choices[0].message.content.strip()
+            content = resp.choices[0].message.content.strip()
+            if not content:
+                raise ValueError("Empty response from OpenRouter")
+            return content
         except Exception as e:
             logger.error(f"Error generating rank summary (attempt {attempt+1}/3): {e}", exc_info=True)
             if attempt < 2:
