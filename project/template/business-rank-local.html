@@ -1,0 +1,26 @@
+<!-- content fragment; styles are injected by pdf_service -->
+<div class="px-1">
+    <div class="bg-[#00489c] pb-10">
+        <div class="flex h-16 w-full items-center justify-between bg-white text-sm text-zinc-800 backdrop-blur transition-colors duration-500 ease-out md:h-20">
+          <div class="flex items-center gap-10">
+            <a class="relative flex h-12 w-28 flex-shrink-0 items-center justify-center md:w-32" href="https://paradane.com" target="_blank">
+              <img src="https://cdn.paradane.com/images/logo.svg" />
+            </a>
+          </div>
+          <div class="flex items-center gap-10">
+            <h1 class="flex items-center gap-1 text-base font-bold sm:text-lg md:text-xl text-[#00489c]/90">Local Rank Report</h1>
+          </div>
+        </div>
+      </div>
+      <!--TYPE_ROW_START-->
+      <div class="py-10 pt-5">
+        <div class="flex flex-col">
+          <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">{BUSINESS_NAME} - {BUSINESS_TYPE[INDEX]_NAME}</h2>
+          <div
+            class="w-full h-[700px]">
+            <img src="{BUSINESS_TYPE[INDEX]_NAME_MAP_IMAGE}" class="w-full h-full object-cover object-center" border="0" />
+          </div>
+        </div>
+      </div>
+      <!--TYPE_ROW_END-->
+    </div>

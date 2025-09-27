@@ -161,7 +161,7 @@ class GoogleClient:
             "neighborhood", "route", "street_number", "floor", "room"
         }
 
-        # Get types and type from new API if available, otherwise from search
+        # Get types and type from new API
         if details.get('types'):
             actual_types = [t for t in details['types'] if t not in generic_types]
             enriched['types'] = actual_types
@@ -170,12 +170,6 @@ class GoogleClient:
                 enriched['type'] = primary_type_display
             else:
                 # Fallback to first actual type
-                enriched['type'] = actual_types[0] if actual_types else None
-        else:
-            # Fallback to search result
-            if 'types' in google_place and google_place['types']:
-                actual_types = [t for t in google_place['types'] if t not in generic_types]
-                enriched['types'] = actual_types
                 enriched['type'] = actual_types[0] if actual_types else None
 
         # Promote a curated subset to top-level only if missing from Yelp,
@@ -210,6 +204,22 @@ class GoogleClient:
     def enrich_batch(self, businesses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Enrich a batch of Yelp businesses using Google Places API."""
         return [self.enrich_with_google(business) for business in businesses]
+
+    def search_competitors_in_category(self, category: str, lat: float, lng: float, radius: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Search for businesses in a specific category within a radius around a location.
+        :param category: Category name (e.g., "restaurant")
+        :param lat: Latitude of center point
+        :param lng: Longitude of center point
+        :param radius: Search radius in meters (default 1000)
+        :return: List of competitor businesses
+        """
+        try:
+            results = self.client.places(query=category, location=(lat, lng), radius=radius)
+            return results.get("results", [])
+        except Exception as e:
+            print(f"Error searching competitors for {category}: {e}")
+            return []
     
     @staticmethod
     def extract_business_website_from_google(google_enrichment: Dict[str, Any]) -> Optional[str]:

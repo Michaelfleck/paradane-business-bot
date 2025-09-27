@@ -134,12 +134,16 @@ def _resolve_status(biz: Dict[str, Any]) -> str:
 def _resolve_categories(biz: Dict[str, Any]) -> str:
     """
     Join category titles preserving order and de-duplicating identical titles.
+    Handles both array of strings and array of objects with 'title' key.
     """
     categories = biz.get("categories") or []
     seen = set()
     titles: List[str] = []
     for c in categories:
-        title = (c or {}).get("title")
+        if isinstance(c, str):
+            title = c.strip()
+        else:
+            title = (c or {}).get("title")
         if not title:
             continue
         if title not in seen:
@@ -278,6 +282,212 @@ def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optiona
         "scale": "2",
     }
     return "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
+
+
+def _get_competitors_and_rank(biz: Dict[str, Any], category: str) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Get competitors for a category within 1km and determine the target business's rank.
+    Returns (competitors_list, rank) where rank is 0 if not found.
+    """
+    lat, lng = _resolve_coords(biz, {})
+    if lat is None or lng is None:
+        return [], 0
+    from project.libs.google_client import GoogleClient
+    client = GoogleClient()
+    competitors = client.search_competitors_in_category(category, lat, lng)
+    target_place_id = _safe_get(biz, "google_enrichment.place_id")
+    rank = 0
+    if target_place_id:
+        for i, comp in enumerate(competitors):
+            if comp.get("place_id") == target_place_id:
+                rank = i + 1
+                break
+    return competitors, rank
+
+
+def _calculate_grid_positions(center_lat: float, center_lng: float, grid_size: int = 5, spacing_km: float = 1.0) -> List[Tuple[float, float]]:
+    """
+    Calculate lat/lng positions for a grid_size x grid_size grid centered on center_lat, center_lng.
+    Uses fixed spacing_km between adjacent bubbles in both axes (default 1.0 km).
+    Returns list of (lat, lng) tuples in row-major order.
+    """
+    import math
+    positions: List[Tuple[float, float]] = []
+    # Approximate conversion: 1 km ≈ 1/110.574 deg latitude
+    lat_km_to_deg = 1.0 / 110.574  # ~0.00904371733
+    # Longitude degrees per km varies with latitude
+    lng_km_to_deg = 1.0 / (111.320 * math.cos(math.radians(center_lat)))
+    lat_spacing = spacing_km * lat_km_to_deg
+    lng_spacing = spacing_km * lng_km_to_deg
+    # Number of steps from center to edge on each side
+    half = (grid_size - 1) // 2
+    # Build grid centered on the business
+    for row in range(-half, half + 1):
+        for col in range(-half, half + 1):
+            lat = center_lat + (-row) * lat_spacing  # negative row moves north for top rows
+            lng = center_lng + col * lng_spacing
+            positions.append((lat, lng))
+    return positions
+
+
+def _get_rank_color_size(rank: int) -> Tuple[str, str]:
+    """
+    Get color and size for a given rank.
+    Colors: green for 1-5, yellow for 6-15, red for 16+
+    Sizes: large for 1-5, mid for 6-10, small for 11-15, tiny for 16+
+    """
+    if rank <= 5:
+        color = "green"
+        size = "large"
+    elif rank <= 10:
+        color = "yellow"
+        size = "mid"
+    elif rank <= 15:
+        color = "yellow"
+        size = "small"
+    else:
+        color = "red"
+        size = "tiny"
+    return color, size
+
+
+def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, target_place_id: str) -> Tuple[Optional[str], float]:
+    """
+    Build a heatmap-like image:
+      - Base: Google Static Map with dynamic zoom to fit the 5x5 grid
+      - Overlay: 5x5 bubbles spaced exactly 1.0 km apart
+      - Each bubble shows the rank at that location; ranks > 20 or not found display '20+'
+      - Bubble color: green 1-5, yellow 6-15, red 16+
+    Returns a tuple of (data URL of the composed PNG, average rank).
+    """
+    import math
+    import requests
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+
+    cfg = get_report_config()
+    if not cfg.GOOGLE_API_KEY:
+        return TRANSPARENT_GIF_DATA_URL, 21.0
+
+    # Parse desired size WxH (e.g., "600x400")
+    try:
+        w_str, h_str = (cfg.MAP_DEFAULT_SIZE or "800x800").split("x")
+        width, height = int(w_str), int(h_str)
+    except Exception:
+        width, height = 800, 800
+
+    # Build fixed 1.0 km grid in geographic coords
+    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_size=5, spacing_km=1.5)
+
+    # Fixed zoom for better visibility - 14 provides good balance for 4km span
+    zoom = 13
+
+    # Request a clean static map without markers; we'll draw overlays ourselves
+    params = {
+        "center": f"{center_lat},{center_lng}",
+        "zoom": str(zoom),
+        "size": f"{width}x{height}",
+        "key": cfg.GOOGLE_API_KEY,
+        "maptype": "roadmap",
+        "scale": "2",
+    }
+    base_url = "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
+
+    try:
+        resp = requests.get(base_url, timeout=30)
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGBA")
+    except Exception as e:
+        logger.warning(f"Failed to fetch base map: {e}")
+        return TRANSPARENT_GIF_DATA_URL, 21.0
+
+    draw = ImageDraw.Draw(img)
+
+    # Utility: Web Mercator projection helpers for pixel coordinate mapping at given zoom
+    def _latlng_to_pixel_xy(lat: float, lng: float, z: int) -> Tuple[float, float]:
+        siny = math.sin(lat * math.pi / 180.0)
+        siny = min(max(siny, -0.9999), 0.9999)
+        tile_size = 256
+        scale = (1 << z) * tile_size
+        x = (lng + 180.0) / 360.0 * scale
+        y = (0.5 - math.log((1 + siny) / (1 - siny)) / (4 * math.pi)) * scale
+        return x, y
+
+    def _pixel_xy_to_point(px: float, py: float, center_px: float, center_py: float, img_w: int, img_h: int) -> Tuple[int, int]:
+        dx = px - center_px
+        dy = py - center_py
+        # Place center at image center
+        x_img = int(img_w / 2 + dx)
+        y_img = int(img_h / 2 + dy)
+        return x_img, y_img
+
+    center_px, center_py = _latlng_to_pixel_xy(center_lat, center_lng, zoom)
+
+    # For each grid position, search for competitors and find rank
+    from project.libs.google_client import GoogleClient
+    client = GoogleClient()
+    ranks: List[int] = []
+    for lat, lng in grid_positions:
+        try:
+            comps = client.search_competitors_in_category(category, lat, lng)
+            rank = 0
+            for i, comp in enumerate(comps):
+                if comp.get("place_id") == target_place_id:
+                    rank = i + 1
+                    break
+            if rank == 0 or rank > 20:
+                rank = 21  # will display as 20+
+            ranks.append(rank)
+        except Exception as e:
+            logger.warning(f"Error getting rank at {lat},{lng}: {e}")
+            ranks.append(21)  # 20+
+
+    # Style constants - same size for all bubbles
+    RADIUS = 40
+    # Colors
+    GREEN = (20, 132, 50, 255)
+    YELLOW = (244, 180, 0, 255)
+    RED = (210, 43, 43, 255)
+    WHITE = (255, 255, 255, 255)
+    STROKE = (255, 255, 255, 230)
+
+    # Font: use default if no TTF available
+    try:
+        font = ImageFont.truetype("arial.ttf", 20)
+    except Exception:
+        font = ImageFont.load_default()
+
+    def _color_for_rank(r: int) -> Tuple[Tuple[int, int, int, int], str]:
+        label = "20+" if r >= 20 else str(r)
+        if r <= 5:
+            return (GREEN, label)
+        elif r <= 10:
+            return (YELLOW, label)
+        elif r <= 15:
+            return (YELLOW, label)
+        else:
+            return (RED, label)
+
+    # Draw bubbles at each grid point
+    for (lat, lng), r in zip(grid_positions, ranks):
+        px, py = _latlng_to_pixel_xy(lat, lng, zoom)
+        x_img, y_img = _pixel_xy_to_point(px, py, center_px, center_py, img.width, img.height)
+        color, label = _color_for_rank(r)
+        # Outline circle for better contrast
+        draw.ellipse([(x_img - RADIUS - 2, y_img - RADIUS - 2), (x_img + RADIUS + 2, y_img + RADIUS + 2)], fill=STROKE)
+        draw.ellipse([(x_img - RADIUS, y_img - RADIUS), (x_img + RADIUS, y_img + RADIUS)], fill=color)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        draw.text((x_img - tw / 2, y_img - th / 2), label, fill=WHITE, font=font)
+
+    # Encode to base64 data URL
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    data_url = f"data:image/png;base64,{encoded}"
+    average_rank = sum(ranks) / len(ranks) if ranks else 21.0
+    return data_url, average_rank
 
 
 def _reorder_emails_by_domain(emails: List[str], website_root: Optional[str]) -> List[str]:
@@ -749,6 +959,78 @@ def generateBusinessReport(business_id: str) -> str:
 
     return html
 
+def generateBusinessRankLocalReport(business_id: str) -> str:
+    """
+    Generate the Business Rank Local Report HTML for a given business_id.
+
+    Shows heatmap for each category with 5x5 grid overlay.
+    """
+    # Load template
+    template_path = os.path.join("project", "template", "business-rank-local.html")
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_html = f.read()
+    except Exception as e:
+        logger.warning("Failed to read template: %s", e)
+        template_html = ""
+
+    # Fetch business
+    biz = _fetch_business(business_id)
+    name = biz.get("name") or "N/A"
+    categories = _resolve_categories(biz)
+    category_list = [c.strip() for c in categories.split(", ") if c.strip() != "N/A"] if categories != "N/A" else []
+
+    lat, lng = _resolve_coords(biz, {})
+    target_place_id = _safe_get(biz, "google_enrichment.place_id")
+
+    # Prepare data for each category - multi-threaded
+    import concurrent.futures
+    def process_category(category):
+        if lat and lng and target_place_id:
+            map_image, avg_rank = _build_heatmap_map_url(lat, lng, category, target_place_id)
+        else:
+            map_image = TRANSPARENT_GIF_DATA_URL
+            avg_rank = 21.0
+        return {
+            "BUSINESS_TYPE[INDEX]_NAME": category,
+            "BUSINESS_TYPE[INDEX]_NAME_MAP_IMAGE": map_image,
+            "average_rank": avg_rank,
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        type_data = list(executor.map(process_category, category_list))
+        type_data.sort(key=lambda x: x["average_rank"])
+
+    # Render indexed block
+    def _render_type(i: int, block_template: str) -> str:
+        import re
+        row = type_data[i] if i < len(type_data) else {}
+        out = block_template
+        pattern = r"\{BUSINESS_TYPE\[INDEX\]_([A-Z0-9_]+)\}"
+        replacement = "{" + f"BUSINESS_TYPE[{i}]_\\1" + "}"
+        out = re.sub(pattern, replacement, out)
+        for k, v in row.items():
+            concrete = "{" + k.replace("[INDEX]", f"[{i}]") + "}"
+            out = out.replace(concrete, str(v))
+        out = re.sub(r"\{BUSINESS_TYPE\[" + str(i) + r"\]_[A-Z0-9_]+\}", "", out)
+        out = out.replace("<!--TYPE_ROW_START-->", "").replace("<!--TYPE_ROW_END-->", "")
+        return out
+
+    html = render_indexed_block(
+        template_html,
+        row_start_marker="<!--TYPE_ROW_START-->",
+        row_end_marker="<!--TYPE_ROW_END-->",
+        item_count=len(type_data),
+        render_for_index=_render_type,
+    )
+
+    # Global replacements
+    context = {"BUSINESS_NAME": name}
+    html = render_template(html, context)
+
+    return html
+
+
 def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
     """
     Render the Business Report PDF for a given business_id.
@@ -767,6 +1049,37 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
     if to_path is None:
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
+
+    # Render to local file
+    base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+
+    # Upload if requested (default to config)
+    do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
+    if do_upload:
+        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+
+    return to_path
+
+
+def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
+    """
+    Render the Business Rank Local Report PDF for a given business_id.
+
+    Returns:
+        str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
+    """
+    cfg = get_report_config()
+    html = generateBusinessRankLocalReport(business_id)
+    # Inject precompiled Tailwind and print CSS
+    html_with_styles = _inject_report_styles(html)
+
+    # Determine output path
+    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
+    os.makedirs(out_dir, exist_ok=True)
+    if to_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        to_path = os.path.join(out_dir, f"business-rank-local-{business_id}-{ts}.pdf")
 
     # Render to local file
     base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
