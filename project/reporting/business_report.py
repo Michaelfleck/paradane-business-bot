@@ -73,6 +73,8 @@ def _fetch_business(business_id: str) -> Dict[str, Any]:
             "rating",
             "is_closed",
             "categories",
+            "type",
+            "types",
             "hours",
             "business_hours",
             "attributes",
@@ -135,12 +137,20 @@ def _resolve_status(biz: Dict[str, Any]) -> str:
 
 def _resolve_categories(biz: Dict[str, Any]) -> str:
     """
-    Join category titles preserving order and de-duplicating identical titles.
-    Handles both array of strings and array of objects with 'title' key.
+    Join category titles and types preserving order and de-duplicating identical titles.
+    Handles both array of strings and array of objects with 'title' key for categories.
+    Converts types from snake_case to title case.
     """
+    def _title_case(s: str) -> str:
+        return ' '.join(word.capitalize() for word in s.split('_'))
+
     categories = biz.get("categories") or []
+    type_text = biz.get("type") or ""
+    types_json = biz.get("types") or []
     seen = set()
     titles: List[str] = []
+
+    # Process categories
     for c in categories:
         if isinstance(c, str):
             title = c.strip()
@@ -151,6 +161,25 @@ def _resolve_categories(biz: Dict[str, Any]) -> str:
         if title not in seen:
             seen.add(title)
             titles.append(title)
+
+    # Process type or types
+    if type_text:
+        title = _title_case(type_text) if '_' in type_text else type_text
+        if title not in seen:
+            seen.add(title)
+            titles.append(title)
+    else:
+        for t in types_json:
+            if isinstance(t, str):
+                title = _title_case(t.strip())
+            else:
+                continue
+            if not title:
+                continue
+            if title not in seen:
+                seen.add(title)
+                titles.append(title)
+
     return ", ".join(titles) if titles else "N/A"
 
 

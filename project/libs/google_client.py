@@ -1,18 +1,16 @@
 import os
 import time
 import requests
-import logging
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import googlemaps
+import logging
 
 # Load environment variables from .env
 load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
 logger = logging.getLogger("project.libs.google_client")
-
 
 class GoogleClient:
     """Google Maps Places API client for fetching business data."""
@@ -40,6 +38,7 @@ class GoogleClient:
         :param place_id: Google Maps Place ID
         :return: Merged place details as a dictionary
         """
+        logger.info(f"Fetching details for place_id: {place_id}")
         merged_details = {}
 
         # Get details from old API
@@ -86,12 +85,14 @@ class GoogleClient:
                         "serves_wine",
                         "serves_brunch",
                         "permanently_closed",
-                        "types"
+                        "type"
                     ]
                 )
                 old_details = results.get("result", {})
+                logger.info(f"Old API returned details with keys: {list(old_details.keys())}")
                 break
             except Exception as e:
+                logger.error(f"Old API attempt {attempt + 1} failed for {place_id}: {e}")
                 if attempt < 2:
                     time.sleep(2 ** attempt)
 
@@ -101,17 +102,18 @@ class GoogleClient:
             try:
                 url = f"https://places.googleapis.com/v1/places/{place_id}"
                 params = {
-                    "fields": "types,primaryTypeDisplayName,displayName,shortFormattedAddress,googleMapsUri,parkingOptions,paymentOptions,accessibilityOptions,amenities",
+                    "fields": "types,primaryTypeDisplayName,displayName,shortFormattedAddress,googleMapsUri,parkingOptions,paymentOptions,accessibilityOptions",
                     "key": self.api_key
                 }
                 response = requests.get(url, params=params)
                 if response.status_code == 200:
                     new_details = response.json()
+                    logger.info(f"New API returned details with keys: {list(new_details.keys())}")
                     break
                 else:
-                    pass
+                    logger.warning(f"New API attempt {attempt + 1} failed for {place_id}: {response.status_code} {response.text}")
             except Exception as e:
-                pass
+                logger.error(f"New API attempt {attempt + 1} failed for {place_id}: {e}")
 
         # Merge details: prefer old API for most fields, add new API fields
         merged_details.update(old_details)
@@ -119,6 +121,16 @@ class GoogleClient:
             merged_details['types'] = new_details.get('types', [])
             merged_details['primaryTypeDisplayName'] = new_details.get('primaryTypeDisplayName', {})
 
+        # Ensure required fields from new API are present
+        required_new_api_fields = [
+            "types", "primaryTypeDisplayName", "displayName", "shortFormattedAddress",
+            "googleMapsUri", "parkingOptions", "paymentOptions", "accessibilityOptions"
+        ]
+        for field in required_new_api_fields:
+            if field not in merged_details:
+                merged_details[field] = None
+
+        logger.info(f"Merged details for {place_id} has {len(merged_details)} fields")
         return merged_details
     
     def enrich_with_google(self, yelp_business: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,6 +148,8 @@ class GoogleClient:
         query = f"{name}, {city}, {state}" if city and state else name
         lat, lng = coords.get("latitude"), coords.get("longitude")
 
+        logger.info(f"Enriching business '{name}' with query: '{query}', coords: {lat}, {lng}")
+
         google_place = None
         try:
             if lat and lng:
@@ -143,11 +157,18 @@ class GoogleClient:
             else:
                 results = self.client.places(query=query)
             candidates = results.get("results", [])
-            google_place = candidates[0] if candidates else None
-        except Exception:
+            logger.info(f"Google search returned {len(candidates)} candidates for '{query}'")
+            if candidates:
+                google_place = candidates[0]
+                logger.info(f"Selected first candidate: {google_place.get('name')} (place_id: {google_place.get('place_id')})")
+            else:
+                logger.warning(f"No Google candidates found for '{query}'")
+        except Exception as e:
+            logger.error(f"Google Places API error for '{query}': {e}")
             google_place = None
 
         if not google_place:
+            logger.warning(f"No Google enrichment for business '{name}' - returning original Yelp data")
             return yelp_business
 
         place_id = google_place.get("place_id")
@@ -165,7 +186,7 @@ class GoogleClient:
             "neighborhood", "route", "street_number", "floor", "room"
         }
 
-        # Get types and type from new API
+        # Get types and type from new API if available, otherwise from search
         if details.get('types'):
             actual_types = [t for t in details['types'] if t not in generic_types]
             enriched['types'] = actual_types
@@ -174,6 +195,12 @@ class GoogleClient:
                 enriched['type'] = primary_type_display
             else:
                 # Fallback to first actual type
+                enriched['type'] = actual_types[0] if actual_types else None
+        else:
+            # Fallback to search result
+            if 'types' in google_place and google_place['types']:
+                actual_types = [t for t in google_place['types'] if t not in generic_types]
+                enriched['types'] = actual_types
                 enriched['type'] = actual_types[0] if actual_types else None
 
         # Promote a curated subset to top-level only if missing from Yelp,
@@ -244,7 +271,6 @@ class GoogleClient:
             if url:
                 return normalize_homepage_url(url)
         return None
-
 
 # Example usage (to be removed or placed in tests)
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ create table if not exists public.businesses (
     geometry text,
     opening_hours text,
     user_ratings_total text,
+    type text,
     website text,
     rating text
 
