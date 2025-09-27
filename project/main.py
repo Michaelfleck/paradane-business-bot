@@ -55,7 +55,7 @@ def main():
 
     # Report rendering command
     report_parser = subparsers.add_parser("report", help="Render report HTML or PDF")
-    report_parser.add_argument("--type", choices=["business", "website", "business-rank-local"], required=True, help="Report type")
+    report_parser.add_argument("--type", choices=["business", "website", "business-visibility"], required=True, help="Report type")
     report_parser.add_argument("--business-id", required=True, help="Business ID")
     report_parser.add_argument("--pdf", action="store_true", help="Output PDF instead of HTML")
     report_parser.add_argument("--out", required=False, help="Output path for PDF or HTML file")
@@ -124,7 +124,7 @@ def main():
         if args.pdf:
             if args.type == "business":
                 result = generateBusinessReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
-            elif args.type == "business-rank-local":
+            elif args.type == "business-visibility":
                 result = generateBusinessRankLocalReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
             else:
                 result = generateWebsiteReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
@@ -132,7 +132,7 @@ def main():
         else:
             if args.type == "business":
                 html = generateBusinessReport(args.business_id)
-            elif args.type == "business-rank-local":
+            elif args.type == "business-visibility":
                 html = generateBusinessRankLocalReport(args.business_id)
             else:
                 html = generateWebsiteReport(args.business_id)

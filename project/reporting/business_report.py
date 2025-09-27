@@ -996,7 +996,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
     Shows heatmap for each category with 6x6 grid overlay.
     """
     # Load template
-    template_path = os.path.join("project", "template", "business-rank-local.html")
+    template_path = os.path.join("project", "template", "business-visibility.html")
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             template_html = f.read()
@@ -1191,7 +1191,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                 plt.xticks(x_positions, labels, fontsize=6)
                 plt.yticks(fontsize=6)
                 plt.axis('tight')
-                plt.subplots_adjust(left=0.01)
+                plt.subplots_adjust(left=0.001)
                 buf = BytesIO()
                 plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
                 buf.seek(0)
@@ -1254,7 +1254,7 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
     # Get business name for PDF title
     biz = _fetch_business(business_id)
     business_name = biz.get("name") or "Business"
-    pdf_title = f"{business_name} - Local Rank Report"
+    pdf_title = f"{business_name} - Visibility Report"
 
     # Create custom PDF options with business-specific title
     from project.reporting.pdf_service import PDFOptions
@@ -1290,12 +1290,12 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
     os.makedirs(out_dir, exist_ok=True)
     if to_path is None:
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        to_path = os.path.join(out_dir, f"business-rank-local-{business_id}-{ts}.pdf")
+        to_path = os.path.join(out_dir, f"business-visibility-{business_id}-{ts}.pdf")
 
     # Get business name for PDF title
     biz = _fetch_business(business_id)
     business_name = biz.get("name") or "Business"
-    pdf_title = f"{business_name} - Local Rank Report"
+    pdf_title = f"{business_name} - Visibility Report"
 
     # Create custom PDF options with business-specific title
     from project.reporting.pdf_service import PDFOptions
