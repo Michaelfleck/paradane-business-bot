@@ -109,7 +109,8 @@ def generate_rank_summary(data: dict) -> str:
         "Include key insights on visibility, competitors, and no strategic recommendations, just facts. "
         "Keep it brief, professional, factual and straight to the point, suitable for business reports. "
         "Structure it in one paragraph with clear section (150 words maximum). "
-        "No markdown formatting, no section titles, just one paragraph."
+        "No markdown formatting, no section titles, just one paragraph. "
+        "Rank 60 specifically indicates that no ranking was found at that location and should be treated as 'No Rank' in all analyses, summaries, and calculations."
     )
 
     user_prompt = f"""

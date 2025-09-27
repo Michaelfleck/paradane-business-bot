@@ -1035,6 +1035,8 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
         type_data = list(executor.map(process_category, category_list))
         # Filter out categories where all balls have no rank (avg_rank is None)
         type_data = [d for d in type_data if d["average_rank"] is not None]
+        # Filter out categories where average rank is greater than 45
+        type_data = [d for d in type_data if d["average_rank"] < 60]
         type_data.sort(key=lambda x: x["average_rank"])
 
         # Collect overall top-5 competitors across all map points
@@ -1098,7 +1100,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             grid_positions = item["grid_positions"]
 
             # Calculate enhanced geographic insights
-            valid_ranks = [r for r in ranks if r is not None]
+            valid_ranks = [r for r in ranks if r is not None and r != 60]
             average_rank = sum(valid_ranks) / len(valid_ranks) if valid_ranks else None
             visibility_coverage = len(valid_ranks) / len(ranks) * 100 if ranks else 0
             top_positions = sum(1 for r in ranks if r == 1)
@@ -1175,7 +1177,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             valid_ranks = [r for r in ranks if r is not None]
             if valid_ranks:
                 rank_counts = Counter(valid_ranks)
-                rank_counts = {k: v for k, v in rank_counts.items() if k <= 60}
+                rank_counts = {k: v for k, v in rank_counts.items() if k < 60}
                 ranks_sorted = sorted(rank_counts.keys())
                 counts = [rank_counts[r] for r in ranks_sorted]
                 labels = [str(r) for r in ranks_sorted]
