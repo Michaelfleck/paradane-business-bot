@@ -90,3 +90,56 @@ def summarize_page(url: str, content: str) -> str:
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
     return ""
+
+
+def generate_rank_summary(data: dict) -> str:
+    """Generate comprehensive summary for business rank local report using OpenRouter"""
+    if not client:
+        return "Summary generation unavailable: OpenRouter client not configured."
+
+    system_instruction = (
+        "You are a business intelligence analyst generating professional summaries for local business ranking reports. "
+        "Create a comprehensive, readable summary based on the provided data. "
+        "Include key insights on visibility, competitors, and strategic recommendations. "
+        "Keep it professional, factual, and suitable for business reports. "
+        "Structure it in one paragraph with clear section. "
+        "No markdown formatting, no section titles, just one paragraph."
+    )
+
+    user_prompt = f"""
+Generate a summary for the business ranking in the category: {data.get('category', 'N/A')}
+
+Key Data:
+- Grid Size: {data.get('grid_size', 36)} points
+- Gap Distance: {data.get('gap_miles', 'N/A')} miles between points
+- Ranks at each point: {data.get('ranks', [])}
+- Low visibility points (rank > 10): {', '.join(data.get('low_visibility_points', []))}
+- Top 5 competitors (by average rank):
+{chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_5_competitors', [])])}
+- Current business reviews: Yelp {data.get('current_reviews', {}).get('yelp', 'N/A')}, Google {data.get('current_reviews', {}).get('google', 'N/A')}
+
+Focus on:
+- Overall visibility and ranking performance
+- Key competitors and their strengths
+- Areas with low visibility
+- Review volume comparison
+- Strategic insights
+"""
+    
+    import time
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-3.3-70b-instruct",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=500,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error generating rank summary (attempt {attempt+1}/3): {e}", exc_info=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    return "Summary generation failed due to API error."
