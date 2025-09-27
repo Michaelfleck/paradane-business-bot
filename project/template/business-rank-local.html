@@ -22,11 +22,14 @@
             </span>
           </div>
           <div
-            class="w-full h-[650px]">
+            class="w-full h-[650px] rounded-xl overflow-hidden">
             <img src="{BUSINESS_TYPE[INDEX]_NAME_MAP_IMAGE}" class="w-full h-full object-cover object-center" border="0" />
           </div>
-          <div>
-            {BUSINESS_TYPE[INDEX]_SUMMARY}
+          <div class="flex flex-col justify-between mt-5">
+            <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Summary</h2>
+            <span class="text-sm">
+              {BUSINESS_TYPE[INDEX]_SUMMARY}
+            </span>
           </div>
         </div>
       </div>

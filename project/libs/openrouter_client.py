@@ -101,7 +101,7 @@ def generate_rank_summary(data: dict) -> str:
         "You are a business intelligence analyst generating professional summaries for local business ranking reports. "
         "Create a comprehensive, readable summary based on the provided data. "
         "Include key insights on visibility, competitors, and strategic recommendations. "
-        "Keep it professional, factual, and suitable for business reports. "
+        "Keep it professional, factual, human-written and suitable for business reports. "
         "Structure it in one paragraph with clear section. "
         "No markdown formatting, no section titles, just one paragraph."
     )
@@ -116,7 +116,7 @@ Key Data:
 - Low visibility points (rank > 10): {', '.join(data.get('low_visibility_points', []))}
 - Top 5 competitors (by average rank):
 {chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_5_competitors', [])])}
-- Current business reviews: Yelp {data.get('current_reviews', {}).get('yelp', 'N/A')}, Google {data.get('current_reviews', {}).get('google', 'N/A')}
+- Current business reviews: Google reviews {data.get('current_reviews', {}).get('google', 'N/A')}
 
 Focus on:
 - Overall visibility and ranking performance
@@ -135,7 +135,7 @@ Focus on:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=500,
+                max_tokens=200,
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:

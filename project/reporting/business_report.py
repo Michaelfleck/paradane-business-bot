@@ -373,16 +373,16 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     # Parse desired size WxH (e.g., "600x400")
     try:
-        w_str, h_str = (cfg.MAP_DEFAULT_SIZE or "800x800").split("x")
+        w_str, h_str = (cfg.MAP_DEFAULT_SIZE or "1000x1000").split("x")
         width, height = int(w_str), int(h_str)
     except Exception:
-        width, height = 800, 800
+        width, height = 1000, 1000
 
     # Build fixed 1.0 km grid in geographic coords
     grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=6, grid_cols=7, spacing_km=2.092150000259)
 
-    # Fixed zoom for better visibility with gap around bubbles
-    zoom = 12
+    # Fixed zoom for better visibility
+    zoom = 13
 
     # Request a clean static map without markers; we'll draw overlays ourselves
     params = {
