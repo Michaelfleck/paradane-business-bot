@@ -303,9 +303,10 @@ def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optiona
     cfg = get_report_config()
     if not cfg.GOOGLE_API_KEY:
         return None
+    zoom_level = int(cfg.MAP_DEFAULT_ZOOM * 1.1)
     params = {
         "center": f"{lat},{lng}",
-        "zoom": str(cfg.MAP_DEFAULT_ZOOM),
+        "zoom": str(zoom_level),
         "size": cfg.MAP_DEFAULT_SIZE,
         "markers": f"color:red|{lat},{lng}",
         "key": cfg.GOOGLE_API_KEY,
@@ -362,7 +363,7 @@ def _get_rank_color_size(rank: int) -> Tuple[str, str]:
     return color, size
 
 
-def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, target_place_id: str) -> Tuple[Optional[str], float, List[int], List[Tuple[float, float]], List[List[Dict[str, Any]]]]:
+def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, target_place_id: str) -> Tuple[Optional[str], float, List[Optional[int]], List[Tuple[float, float]], List[List[Dict[str, Any]]]]:
     """
     Build a heatmap-like image:
       - Base: Google Static Map with dynamic zoom to fit the 7x7 grid
@@ -389,9 +390,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     # Build fixed approximately 1.666 miles grid in geographic coords
     spacing_km = 1.666 * 1.60934
-    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=7, spacing_km=spacing_km)
-    # Set radius to 5.0 miles (8046 meters)
-    radius = 8046
+    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=8, spacing_km=spacing_km)
 
     zoom = 12
 
@@ -401,7 +400,6 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         "zoom": str(zoom),
         "size": f"{width}x{height}",
         "key": cfg.GOOGLE_API_KEY,
-        "maptype": "roadmap",
         "scale": "2",
     }
     base_url = "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
@@ -438,29 +436,26 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     # For each grid position, search for competitors and find rank
     from project.libs.google_client import GoogleClient
     client = GoogleClient()
-    ranks: List[int] = []
+    ranks: List[Optional[int]] = []
     competitors_per_point: List[List[Dict[str, Any]]] = []
 
     def search_position(lat_lng):
         lat, lng = lat_lng
         try:
             # Text search
-            comps_text = client.search_competitors_in_category(category, lat, lng, radius=radius)
+            comps_text = client.search_competitors_in_category(category, lat, lng)
             rank_text = 0
             for i, comp in enumerate(comps_text):
                 if comp.get("place_id") == target_place_id:
                     rank_text = i + 1
                     break
-            if rank_text == 0 or rank_text > 20:
-                rank_text = 21
-
-            rank = rank_text
+            rank = rank_text if rank_text != 0 and rank_text <= 20 else None
 
             logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, final_rank={rank}")
             return comps_text, rank
         except Exception as e:
             logger.warning(f"Error getting rank at {lat},{lng}: {e}")
-            return [], 21
+            return [], None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(search_position, grid_positions))
@@ -472,9 +467,9 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     # Style constants - same size for all bubbles
     RADIUS = 25
     # Colors with 90% opacity
-    GREEN = (20, 132, 50, 229)
-    YELLOW = (244, 180, 0, 229)
-    RED = (210, 43, 43, 229)
+    GREEN = (20, 132, 50, 230)
+    YELLOW = (244, 180, 0, 220)
+    RED = (210, 43, 43, 200)
     WHITE = (255, 255, 255, 255)
     STROKE = (255, 255, 255, 255)
 
@@ -484,7 +479,9 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     except Exception:
         font = ImageFont.load_default()
 
-    def _color_for_rank(r: int) -> Tuple[Tuple[int, int, int, int], str]:
+    def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
+        if r is None:
+            return (RED, "20+")
         label = "20+" if r > 20 else str(r)
         if r <= 5:
             return (GREEN, label)
@@ -513,7 +510,8 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     img.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     data_url = f"data:image/png;base64,{encoded}"
-    average_rank = sum(ranks) / len(ranks) if ranks else 21.0
+    ranks_valid = [r for r in ranks if r is not None]
+    average_rank = sum(ranks_valid) / len(ranks_valid) if ranks_valid else 21.0
     return data_url, average_rank, ranks, grid_positions, competitors_per_point
 
 
@@ -1057,7 +1055,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             ranks = item["ranks"]
             competitors_per_point = item["competitors_per_point"]
             for i, comps in enumerate(competitors_per_point):
-                rank_at_point = ranks[i] if i < len(ranks) else 21
+                rank_at_point = ranks[i] if i < len(ranks) else None
                 for j, comp in enumerate(comps):
                     pid = comp.get("place_id")
                     if pid and pid != target_place_id:  # exclude the target business
@@ -1087,7 +1085,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
                     "user_ratings_total": stats["user_ratings_total"],
                 })
         competitors_list.sort(key=lambda x: x["avg_rank"])
-        top_5_competitors = competitors_list[:5]
+        top_10_competitors = competitors_list[:10]
 
         # Helper function for directions
         def get_direction(lat, lng, center_lat, center_lng):
@@ -1111,17 +1109,18 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             grid_positions = item["grid_positions"]
             low_visibility_points = []
             for i, rank in enumerate(ranks):
-                if rank > 10:
+                if rank is None or rank > 10:
                     grid_lat, grid_lng = grid_positions[i]
                     direction = get_direction(grid_lat, grid_lng, lat, lng)  # center_lat, center_lng
                     low_visibility_points.append(direction)
             summary_data = {
                 "category": category,
+                "current_business_categories": categories,
                 "grid_size": len(grid_positions),
                 "gap_miles": gap_miles_str,
-                "ranks": ranks,
+                "ranks": ",".join(str(r) if r is not None else "" for r in ranks),
                 "low_visibility_points": low_visibility_points,
-                "top_5_competitors": top_5_competitors,
+                "top_10_competitors": top_10_competitors,
                 "current_reviews": current_reviews,
             }
             summary = generate_rank_summary(summary_data)

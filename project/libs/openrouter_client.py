@@ -121,7 +121,7 @@ Key Data:
 - Ranks at each point: {data.get('ranks', [])}
 - Low visibility points (rank > 10): {', '.join(data.get('low_visibility_points', []))}
 - Top 5 competitors (by average rank):
-{chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_5_competitors', [])])}
+{chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_10_competitors', [])])}
 - Current business reviews: Google reviews {data.get('current_reviews', {}).get('google', 'N/A')}
 
 Focus on:

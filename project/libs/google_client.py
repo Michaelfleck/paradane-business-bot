@@ -236,7 +236,7 @@ class GoogleClient:
         """Enrich a batch of Yelp businesses using Google Places API."""
         return [self.enrich_with_google(business) for business in businesses]
 
-    def search_competitors_in_category(self, category: str, lat: float, lng: float, radius: int = 1000) -> List[Dict[str, Any]]:
+    def search_competitors_in_category(self, category: str, lat: float, lng: float) -> List[Dict[str, Any]]:
         """
         Search for businesses in a specific category within a radius around a location.
         :param category: Category name (e.g., "restaurant")
@@ -247,7 +247,7 @@ class GoogleClient:
         """
         # Normalize category: lowercase and replace spaces with underscores
         try:
-            logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}, radius={radius}")
+            logger.debug(f"Searching competitors for category='{category}', lat={lat}, lng={lng}")
             results = self.client.places_nearby(location=(lat, lng), keyword=category, rank_by="distance")
             competitors = results.get("results", [])
             place_ids = [comp.get("place_id") for comp in competitors[:5]]  # Log first 5 place_ids
