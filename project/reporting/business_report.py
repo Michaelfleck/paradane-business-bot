@@ -469,26 +469,30 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     # Colors with 90% opacity
     GREEN = (20, 132, 50, 230)
     YELLOW = (244, 180, 0, 220)
+    ORANGE = (255, 140, 0, 220)
     RED = (210, 43, 43, 200)
     WHITE = (255, 255, 255, 255)
     STROKE = (255, 255, 255, 255)
 
-    # Font: use default if no TTF available
+    # Font: use bold if available, else default
     try:
-        font = ImageFont.truetype("arial.ttf", 20)
+        font = ImageFont.truetype("arialbd.ttf", 22)
     except Exception:
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.truetype("arial.ttf", 22)
+        except Exception:
+            font = ImageFont.load_default()
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
         if r is None:
-            return (RED, "20+")
-        label = "20+" if r > 20 else str(r)
+            return (RED, "21+")
+        label = "21+" if r > 20 else str(r)
         if r <= 5:
             return (GREEN, label)
         elif r <= 10:
             return (YELLOW, label)
         elif r <= 20:
-            return (YELLOW, label)
+            return (ORANGE, label)
         else:
             return (RED, label)
 
@@ -498,9 +502,10 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         x_img, y_img = _pixel_xy_to_point(px, py, center_px, center_py, img.width, img.height)
         color, label = _color_for_rank(r)
         # Outline circle for better contrast
-        draw.ellipse([(x_img - RADIUS - 2, y_img - RADIUS - 2), (x_img + RADIUS + 2, y_img + RADIUS + 2)], fill=STROKE)
+        draw.ellipse([(x_img - RADIUS - 4, y_img - RADIUS - 4), (x_img + RADIUS + 4, y_img + RADIUS + 4)], fill=STROKE)
         draw.ellipse([(x_img - RADIUS, y_img - RADIUS), (x_img + RADIUS, y_img + RADIUS)], fill=color)
-        bbox = draw.textbbox((0, 0), label, font=font)
+        # Center text horizontally and place baseline at vertical center
+        bbox = draw.textbbox((0, -10), label, font=font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
         draw.text((x_img - tw / 2, y_img - th / 2), label, fill=WHITE, font=font)
@@ -1023,6 +1028,11 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
 
     # Prepare data for each category - multi-threaded
     import concurrent.futures
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from collections import Counter
+    from io import BytesIO
     def process_category(category):
         if lat and lng and target_place_id:
             map_image, avg_rank, ranks, grid_positions, competitors_per_point = _build_heatmap_map_url(lat, lng, category, target_place_id)
@@ -1164,6 +1174,34 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
         for item, summary in zip(type_data, summaries):
             item["BUSINESS_TYPE[INDEX]_SUMMARY"] = summary
 
+        # Generate rank distribution charts
+        for item in type_data:
+            ranks = item["ranks"]
+            valid_ranks = [r for r in ranks if r is not None]
+            if valid_ranks:
+                rank_counts = Counter(valid_ranks)
+                ranks_sorted = sorted(rank_counts.keys())
+                counts = [rank_counts[r] for r in ranks_sorted]
+                labels = [str(r) if r <= 20 else '20+' for r in ranks_sorted]
+                plt.figure(figsize=(6, 2))
+                plt.rcParams['font.family'] = 'Arial'
+                plt.rcParams['font.size'] = 9
+                x_positions = list(range(len(labels)))
+                plt.bar(x_positions, counts, color='#00489c')
+                plt.xticks(x_positions, labels, fontsize=6)
+                plt.yticks(fontsize=6)
+                plt.axis('tight')
+                plt.subplots_adjust(left=0.01)
+                buf = BytesIO()
+                plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+                buf.seek(0)
+                encoded = base64.b64encode(buf.getvalue()).decode('ascii')
+                data_url = f"data:image/png;base64,{encoded}"
+                plt.close()
+                item["BUSINESS_TYPE[INDEX]_CHART_IMAGE"] = data_url
+            else:
+                item["BUSINESS_TYPE[INDEX]_CHART_IMAGE"] = TRANSPARENT_GIF_DATA_URL
+
     # Render indexed block
     def _render_type(i: int, block_template: str) -> str:
         import re
@@ -1257,7 +1295,7 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
     # Get business name for PDF title
     biz = _fetch_business(business_id)
     business_name = biz.get("name") or "Business"
-    pdf_title = f"{business_name} - Business Report"
+    pdf_title = f"{business_name} - Local Rank Report"
 
     # Create custom PDF options with business-specific title
     from project.reporting.pdf_service import PDFOptions

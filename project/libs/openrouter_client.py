@@ -105,10 +105,9 @@ def generate_rank_summary(data: dict) -> str:
     system_instruction = (
         "You are a business intelligence analyst generating professional summaries for local business ranking reports. "
         "Create a comprehensive, readable summary based on the provided data. "
-        "Include key insights on visibility, competitors, and strategic recommendations. "
-        "Keep it professional, factual, human-written and suitable for business reports. "
-        "Keep it straight to the point. "
-        "Structure it in one paragraph with clear section (250 words maximum). "
+        "Include key insights on visibility, competitors, and no strategic recommendations, just facts. "
+        "Keep it brief, professional, factual and straight to the point, suitable for business reports. "
+        "Structure it in one paragraph with clear section (150 words maximum). "
         "No markdown formatting, no section titles, just one paragraph."
     )
 
@@ -147,7 +146,7 @@ Focus on:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=300,
+                max_tokens=200,
             )
             content = resp.choices[0].message.content.strip()
             if not content:

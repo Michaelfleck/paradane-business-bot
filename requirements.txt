@@ -12,3 +12,4 @@ torch
 pytesseract
 Pillow
 accelerate
+matplotlib
