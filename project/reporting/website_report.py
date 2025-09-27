@@ -246,8 +246,19 @@ def generateWebsiteReportPdf(business_id: str, to_path: str | None = None, uploa
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"website-{business_id}-{ts}.pdf")
 
+    # Get business name for PDF title
+    from project.reporting.business_report import _fetch_business
+    biz = _fetch_business(business_id)
+    business_name = biz.get("name") or "Business"
+    pdf_title = f"{business_name} - Website Report"
+
+    # Create custom PDF options with business-specific title
+    from project.reporting.pdf_service import PDFOptions
+    pdf_options = _config_to_options()
+    pdf_options.header_title = pdf_title
+
     base_url = pathlib.Path(_project_root_abs()).as_uri()
-    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=pdf_options)
 
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
     if do_upload:

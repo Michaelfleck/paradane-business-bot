@@ -1107,18 +1107,50 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             category = item["BUSINESS_TYPE[INDEX]_NAME"]
             ranks = item["ranks"]
             grid_positions = item["grid_positions"]
+
+            # Calculate enhanced geographic insights
+            valid_ranks = [r for r in ranks if r is not None]
+            average_rank = sum(valid_ranks) / len(valid_ranks) if valid_ranks else 21.0
+            visibility_coverage = len(valid_ranks) / len(ranks) * 100 if ranks else 0
+            top_positions = sum(1 for r in ranks if r == 1)
+
+            # Direction-based analysis
+            direction_ranks = {}
             low_visibility_points = []
             for i, rank in enumerate(ranks):
+                grid_lat, grid_lng = grid_positions[i]
+                direction = get_direction(grid_lat, grid_lng, lat, lng)
+                if direction not in direction_ranks:
+                    direction_ranks[direction] = []
+                if rank is not None:
+                    direction_ranks[direction].append(rank)
                 if rank is None or rank > 10:
-                    grid_lat, grid_lng = grid_positions[i]
-                    direction = get_direction(grid_lat, grid_lng, lat, lng)  # center_lat, center_lng
                     low_visibility_points.append(direction)
+
+            # Calculate average rank by direction
+            direction_averages = {}
+            for dir_name, dir_ranks in direction_ranks.items():
+                if dir_ranks:
+                    direction_averages[dir_name] = sum(dir_ranks) / len(dir_ranks)
+
+            # Identify best and worst performing directions
+            best_direction = min(direction_averages.items(), key=lambda x: x[1]) if direction_averages else ("N/A", 21.0)
+            worst_direction = max(direction_averages.items(), key=lambda x: x[1]) if direction_averages else ("N/A", 21.0)
+
             summary_data = {
                 "category": category,
                 "current_business_categories": categories,
                 "grid_size": len(grid_positions),
                 "gap_miles": gap_miles_str,
                 "ranks": ",".join(str(r) if r is not None else "" for r in ranks),
+                "average_rank": average_rank,
+                "visibility_coverage": visibility_coverage,
+                "top_positions": top_positions,
+                "direction_averages": direction_averages,
+                "best_direction": best_direction[0],
+                "best_direction_rank": best_direction[1],
+                "worst_direction": worst_direction[0],
+                "worst_direction_rank": worst_direction[1],
                 "low_visibility_points": low_visibility_points,
                 "top_10_competitors": top_10_competitors,
                 "current_reviews": current_reviews,
@@ -1181,9 +1213,19 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
 
+    # Get business name for PDF title
+    biz = _fetch_business(business_id)
+    business_name = biz.get("name") or "Business"
+    pdf_title = f"{business_name} - Local Rank Report"
+
+    # Create custom PDF options with business-specific title
+    from project.reporting.pdf_service import PDFOptions
+    pdf_options = _config_to_options()
+    pdf_options.header_title = pdf_title
+
     # Render to local file
     base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
-    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=pdf_options)
 
     # Upload if requested (default to config)
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
@@ -1212,9 +1254,19 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-rank-local-{business_id}-{ts}.pdf")
 
+    # Get business name for PDF title
+    biz = _fetch_business(business_id)
+    business_name = biz.get("name") or "Business"
+    pdf_title = f"{business_name} - Business Report"
+
+    # Create custom PDF options with business-specific title
+    from project.reporting.pdf_service import PDFOptions
+    pdf_options = _config_to_options()
+    pdf_options.header_title = pdf_title
+
     # Render to local file
     base_url = pathlib.Path(_project_root_abs()).as_uri()  # resolve local assets
-    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=_config_to_options())
+    html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=pdf_options)
 
     # Upload if requested (default to config)
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload

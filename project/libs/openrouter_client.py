@@ -108,7 +108,7 @@ def generate_rank_summary(data: dict) -> str:
         "Include key insights on visibility, competitors, and strategic recommendations. "
         "Keep it professional, factual, human-written and suitable for business reports. "
         "Keep it straight to the point. "
-        "Structure it in one paragraph with clear section (100 words maximum). "
+        "Structure it in one paragraph with clear section (250 words maximum). "
         "No markdown formatting, no section titles, just one paragraph."
     )
 
@@ -118,18 +118,24 @@ Generate a summary for the business ranking in the category: {data.get('category
 Key Data:
 - Grid Size: {data.get('grid_size', 56)} points
 - Gap Distance: {data.get('gap_miles', 'N/A')} miles between points
-- Ranks at each point: {data.get('ranks', [])}
-- Low visibility points (rank > 10): {', '.join(data.get('low_visibility_points', []))}
+- Average Rank: {data.get('average_rank', 'N/A'):.2f}
+- Visibility Coverage: {data.get('visibility_coverage', 0):.1f}% of grid points have rankings
+- Top Positions (#1 ranks): {data.get('top_positions', 0)} points
+- Best performing direction: {data.get('best_direction', 'N/A')} (avg rank: {data.get('best_direction_rank', 'N/A'):.2f})
+- Worst performing direction: {data.get('worst_direction', 'N/A')} (avg rank: {data.get('worst_direction_rank', 'N/A'):.2f})
+- Direction averages: {', '.join([f"{dir}: {avg:.2f}" for dir, avg in data.get('direction_averages', {}).items()])}
+- Low visibility directions (rank > 10): {', '.join(set(data.get('low_visibility_points', [])))}
 - Top 10 competitors (by average rank):
 {chr(10).join([f"  - {comp['name']} (avg rank: {comp['avg_rank']:.2f}, categories: {', '.join(comp['categories'])}, Google reviews: {comp['user_ratings_total']})" for comp in data.get('top_10_competitors', [])])}
 - Current business reviews: Google reviews {data.get('current_reviews', {}).get('google', 'N/A')}
 
 Focus on:
-- Overall visibility and ranking performance
+- Overall visibility and ranking performance with specific metrics
+- Geographic patterns and directional performance variations
 - Key competitors and their strengths
-- Areas with low visibility
+- Areas with low visibility and strategic implications
 - Review volume comparison
-- Strategic insights
+- Actionable strategic insights based on geographic data
 """
     
     import time
@@ -141,7 +147,7 @@ Focus on:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=200,
+                max_tokens=300,
             )
             content = resp.choices[0].message.content.strip()
             if not content:
