@@ -1180,17 +1180,30 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             valid_ranks = [r for r in ranks if r is not None]
             if valid_ranks:
                 rank_counts = Counter(valid_ranks)
+                # Group ranks > 20 into '20+'
+                high_rank_count = sum(count for rank, count in rank_counts.items() if rank > 20)
+                rank_counts = {k: v for k, v in rank_counts.items() if k <= 20}
+                # Ensure all ranks from 1 to 20 are included, even with count 0
+                for r in range(1, 21):
+                    if r not in rank_counts:
+                        rank_counts[r] = 0
                 ranks_sorted = sorted(rank_counts.keys())
                 counts = [rank_counts[r] for r in ranks_sorted]
-                labels = [str(r) if r <= 20 else '20+' for r in ranks_sorted]
+                labels = [str(r) for r in ranks_sorted]
+                if high_rank_count > 0:
+                    labels.append('20+')
+                    counts.append(high_rank_count)
                 plt.figure(figsize=(6, 2))
                 plt.rcParams['font.family'] = 'Arial'
                 plt.rcParams['font.size'] = 9
                 x_positions = list(range(len(labels)))
                 plt.bar(x_positions, counts, color='#00489c')
                 plt.xticks(x_positions, labels, fontsize=6)
-                plt.yticks(fontsize=6)
-                plt.axis('tight')
+                # Set y-ticks to all integers from 0 to max_count
+                max_count = max(counts) if counts else 0
+                yticks = list(range(0, max_count + 1))
+                plt.yticks(yticks, [str(y) for y in yticks], fontsize=6)
+                plt.ylim(0, max_count + 1)
                 plt.subplots_adjust(left=0.001)
                 buf = BytesIO()
                 plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
