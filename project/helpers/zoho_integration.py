@@ -3,6 +3,10 @@ from typing import Dict, Any, List, Optional, Tuple
 from project.libs.zoho_client import get_zoho_client
 from project.libs.supabase_client import get_client
 import re
+import tempfile
+import os
+import mimetypes
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +194,12 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
     try:
         client = get_zoho_client()
         company_name = business.get('name')
+        logger.info(f"Creating Zoho lead for business {business['id']}, company_name: '{company_name}'")
 
         # Check for existing lead with same company name
         if company_name:
             existing_leads = client.search_leads({"Company": company_name})
+            logger.info(f"Searched for existing leads with Company: '{company_name}', found: {len(existing_leads)}")
             if existing_leads:
                 existing_lead_id = existing_leads[0]['id']
                 logger.info(f"Found existing Zoho lead {existing_lead_id} for business {business['id']} (company: {company_name})")
@@ -214,12 +220,14 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
         if company_name:
             # Check for existing account with same company name
             existing_accounts = client.search_accounts({"Account_Name": company_name})
+            logger.info(f"Searched for existing accounts with Account_Name: '{company_name}', found: {len(existing_accounts)}")
             if existing_accounts:
                 account_id = existing_accounts[0]['id']
                 logger.info(f"Found existing Zoho account {account_id} for business {business['id']} (company: {company_name})")
             else:
                 # Create new account
                 account_data = map_business_to_account(business)
+                logger.info(f"Creating new account for business {business['id']} with data: {account_data}")
                 try:
                     account_id = client.create_account(account_data)
                     logger.info(f"Created Zoho account {account_id} for business {business['id']}")
@@ -232,8 +240,8 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
         if account_id:
             try:
                 update_data = {'Account': account_id}
-                client.update_lead(lead_id, update_data)
-                logger.info(f"Linked account {account_id} to lead {lead_id}")
+                success = client.update_lead(lead_id, update_data)
+                logger.info(f"Linked account {account_id} to lead {lead_id}, update success: {success}")
             except Exception as e:
                 logger.error(f"Failed to link account {account_id} to lead {lead_id}: {e}")
 
@@ -327,19 +335,35 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
         # Retrieve lead to get associated account ID
         lead_details = client.get_lead(lead_id)
         account_id = lead_details.get('Account') if lead_details else None
+        company_name = lead_details.get('Company') if lead_details else None
+        logger.info(f"Processing contacts for lead {lead_id}, current account_id: {account_id}, company_name: '{company_name}'")
         if not account_id:
             # Create account from lead data and link to lead
-            account_data = map_lead_to_account(lead_details)
-            try:
-                account_id = client.create_account(account_data)
-                logger.info(f"Created Zoho account {account_id} for lead {lead_id}")
-                # Link account to lead
-                update_data = {'Account': account_id}
-                client.update_lead(lead_id, update_data)
-                logger.info(f"Linked account {account_id} to lead {lead_id}")
-            except Exception as e:
-                logger.error(f"Failed to create/link account for lead {lead_id}: {e}")
-                # Continue without account
+            if not company_name:
+                logger.info(f"No company name for lead {lead_id}, skipping account creation")
+            else:
+                account_data = map_lead_to_account(lead_details)
+                logger.info(f"Lead has no account, creating account from lead data: {account_data}")
+                existing_accounts = client.search_accounts({"Account_Name": company_name})
+                logger.info(f"Searched for existing accounts with Account_Name: '{company_name}', found: {len(existing_accounts)}")
+                if existing_accounts:
+                    account_id = existing_accounts[0]['id']
+                    logger.info(f"Using existing account {account_id} for lead {lead_id}")
+                else:
+                    try:
+                        account_id = client.create_account(account_data)
+                        logger.info(f"Created Zoho account {account_id} for lead {lead_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to create account for lead {lead_id}: {e}")
+                        # Continue without account
+                if account_id:
+                    # Link account to lead
+                    update_data = {'Account': account_id}
+                    success = client.update_lead(lead_id, update_data)
+                    if success:
+                        logger.info(f"Linked account {account_id} to lead {lead_id}")
+                    else:
+                        logger.error(f"Failed to link account {account_id} to lead {lead_id}")
 
         processed_emails = set()
 
@@ -347,8 +371,10 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
             if email in processed_emails:
                 continue
 
+            logger.info(f"Processing contact for email {email}, will link to account {account_id}")
             # Check if contact already exists with this email
             existing_contacts = client.search_contacts({"Email": email})
+            logger.info(f"Searched for existing contacts with Email: '{email}', found: {len(existing_contacts)}")
             if existing_contacts:
                 # Check if contact is already linked to this lead
                 contact_id = existing_contacts[0]['id']
@@ -362,6 +388,7 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                     update_data = {'Lead': lead_id}
                     if account_id:
                         update_data['Account'] = account_id
+                    logger.info(f"Updating existing contact {contact_id} with data: {update_data}")
                     success = client.update_contact(contact_id, update_data)
                     if success:
                         logger.info(f"Linked existing contact {contact_id} for email {email} to lead {lead_id}")
@@ -384,6 +411,7 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
 
                 # Remove None values
                 contact_data = {k: v for k, v in contact_data.items() if v is not None}
+                logger.info(f"Creating new contact for email {email} with data: {contact_data}")
 
                 try:
                     contact_id = client.create_contact(contact_data)
@@ -478,3 +506,63 @@ def check_report_attachment_exists(lead_id: str, report_type: str, business_name
     except Exception as e:
         logger.warning(f"Failed to check attachments for lead {lead_id}: {e}")
         return False  # On error, assume not exists to allow upload
+
+def check_image_attachment_exists(lead_id: str, business_name: str) -> bool:
+    """Check if a business image attachment already exists for the lead."""
+    try:
+        client = get_zoho_client()
+        attachments = client.get_attachments("Leads", lead_id)
+        for att in attachments:
+            file_name = att.get("File_Name", "")
+            if file_name.startswith(f"Business Image - {business_name}"):
+                return True
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check image attachments for lead {lead_id}: {e}")
+        return False  # On error, assume not exists to allow upload
+
+def attach_image_to_lead(business_id: str, lead_id: str) -> bool:
+    """Attach the business image from image_url to a Zoho lead."""
+    try:
+        # Get image_url and business name
+        supabase_client = get_client()
+        response = supabase_client.table("businesses").select("image_url, name").eq("id", business_id).single().execute()
+        if not response.data or not response.data.get("image_url"):
+            logger.info(f"No image_url for business {business_id}")
+            return False
+
+        image_url = response.data["image_url"]
+        business_name = response.data.get("name", "Business")
+
+        # Check if image already attached
+        if check_image_attachment_exists(lead_id, business_name):
+            logger.info(f"Image already attached to lead {lead_id} for business {business_name}")
+            return True
+
+        # Download the image
+        response_img = requests.get(image_url, timeout=30)
+        response_img.raise_for_status()
+
+        content_type = response_img.headers.get('content-type', 'image/jpeg')
+        ext = mimetypes.guess_extension(content_type) or '.jpg'
+        file_name = f"Business Image - {business_name}{ext}"
+
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
+            temp_file.write(response_img.content)
+            temp_file_path = temp_file.name
+
+        try:
+            # Attach to Zoho lead
+            client = get_zoho_client()
+            success = client.attach_document("Leads", lead_id, temp_file_path, file_name, content_type)
+            if success:
+                logger.info(f"Attached image to lead {lead_id} for business {business_id}")
+            return success
+        finally:
+            # Clean up temp file
+            os.unlink(temp_file_path)
+
+    except Exception as e:
+        logger.error(f"Failed to attach image to lead {lead_id} for business {business_id}: {e}")
+        return False

@@ -251,12 +251,12 @@ class ZohoCRMClient:
         return None
 
 
-    def attach_document(self, module: str, record_id: str, file_path: str, file_name: str) -> bool:
+    def attach_document(self, module: str, record_id: str, file_path: str, file_name: str, content_type: str = 'application/pdf') -> bool:
         """Attach a document to a record (lead/contact)."""
         endpoint = f"/crm/v2/{module}/{record_id}/Attachments"
 
         with open(file_path, 'rb') as f:
-            files = {'file': (file_name, f, 'application/pdf')}
+            files = {'file': (file_name, f, content_type)}
             response = self._make_request("POST", endpoint, files=files)
 
         if 'data' in response and response['data']:
