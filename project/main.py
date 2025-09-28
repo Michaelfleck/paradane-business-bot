@@ -15,6 +15,7 @@ from project.helpers.integration import (
 from project.helpers.zoho_integration import create_zoho_lead_for_business
 from project.libs.yelp_client import YelpClient
 # from project.libs.google_client import GoogleClient
+from project.libs.zoho_client import ZohoAuth
 from project.reporting.config import get_report_config
 from project.reporting.business_report import generateBusinessReport, generateBusinessReportPdf, generateBusinessRankLocalReport, generateBusinessRankLocalReportPdf
 from project.reporting.website_report import generateWebsiteReport, generateWebsiteReportPdf
@@ -57,9 +58,20 @@ def main():
     # Report rendering command
     report_parser = subparsers.add_parser("report", help="Render report HTML or PDF")
     report_parser.add_argument("--business-id", required=True, help="Business ID")
+    report_parser.add_argument("--type", choices=["business", "website"], default="business", help="Report type")
     report_parser.add_argument("--pdf", action="store_true", help="Output PDF instead of HTML")
     report_parser.add_argument("--out", required=False, help="Output path for PDF or HTML file")
     report_parser.add_argument("--no-upload", action="store_true", help="Do not upload PDF to Storage even if enabled in config")
+
+    # OAuth command
+    oauth_parser = subparsers.add_parser("oauth", help="Zoho OAuth management")
+    oauth_subparsers = oauth_parser.add_subparsers(dest="oauth_command", required=True)
+
+    # OAuth start command
+    oauth_start_parser = oauth_subparsers.add_parser("start", help="Get the OAuth authorization URL")
+
+    # OAuth server command
+    oauth_server_parser = oauth_subparsers.add_parser("server", help="Start the OAuth callback server")
 
     args = parser.parse_args()
 
@@ -140,6 +152,26 @@ def main():
                 print(args.out)
             else:
                 print(html[:20000])
+    elif args.command == "oauth":
+        if args.oauth_command == "start":
+            client_id = os.getenv("ZOHO_CLIENT_ID")
+            client_secret = os.getenv("ZOHO_CLIENT_SECRET")
+            redirect_uri = os.getenv("ZOHO_REDIRECT_URI")
+
+            if not client_id or not client_secret or not redirect_uri:
+                print("Error: ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REDIRECT_URI must be set in .env")
+                sys.exit(1)
+
+            auth = ZohoAuth(client_id, client_secret, redirect_uri)
+            auth_url = auth.get_authorization_url()
+            print("Visit this URL to authorize the application:")
+            print(auth_url)
+            print("\nAfter authorization, the refresh token will be saved to .env")
+        elif args.oauth_command == "server":
+            from project.web_server import app
+            print("Starting OAuth callback server on http://localhost:5000")
+            print("Visit http://localhost:5000/oauth/start to begin authorization")
+            app.run(host='0.0.0.0', port=5000, debug=False)
 
 
 if __name__ == "__main__":

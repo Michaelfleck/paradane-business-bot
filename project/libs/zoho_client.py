@@ -9,16 +9,20 @@ logger = logging.getLogger(__name__)
 class ZohoAuth:
     """Handles Zoho OAuth2 authentication and token management."""
 
-    def __init__(self, client_id: str, client_secret: str, data_center: str = "us"):
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str, refresh_token: Optional[str] = None, data_center: str = "us"):
         self.client_id = client_id
         self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+        self.refresh_token = refresh_token
         self.data_center = data_center.lower()
         if self.data_center == "us":
             self.base_url = "https://www.zohoapis.com"
             self.auth_url = "https://accounts.zoho.com/oauth/v2/token"
+            self.auth_base_url = "https://accounts.zoho.com/oauth/v2/auth"
         else:
             self.base_url = f"https://www.zohoapis{self.data_center}.com"
             self.auth_url = f"https://accounts.zoho{self.data_center}.com/oauth/v2/token"
+            self.auth_base_url = f"https://accounts.zoho{self.data_center}.com/oauth/v2/auth"
         self._access_token: Optional[str] = None
         self._token_expires_at: Optional[float] = None
 
@@ -27,10 +31,14 @@ class ZohoAuth:
         if self._access_token and self._token_expires_at and time.time() < self._token_expires_at - 60:  # Refresh 1 min early
             return self._access_token
 
+        if not self.refresh_token:
+            raise ValueError("No refresh token available. Please complete OAuth authorization first.")
+
         data = {
-            'grant_type': 'client_credentials',
+            'grant_type': 'refresh_token',
             'client_id': self.client_id,
-            'client_secret': self.client_secret
+            'client_secret': self.client_secret,
+            'refresh_token': self.refresh_token
         }
 
         try:
@@ -42,10 +50,68 @@ class ZohoAuth:
             expires_in = token_data.get('expires_in', 3600)  # Default 1 hour
             self._token_expires_at = time.time() + expires_in
 
-            logger.info("Successfully obtained Zoho access token")
+            logger.info("Successfully refreshed Zoho access token")
             return self._access_token
         except requests.RequestException as e:
-            logger.error(f"Failed to get Zoho access token: {e}")
+            logger.error(f"Failed to refresh Zoho access token: {e}")
+            raise
+
+    def get_authorization_url(self, scope: str = "ZohoCRM.modules.ALL") -> str:
+        """Generate the authorization URL for OAuth flow."""
+        params = {
+            'client_id': self.client_id,
+            'redirect_uri': self.redirect_uri,
+            'response_type': 'code',
+            'scope': scope,
+            'access_type': 'offline'
+        }
+        query = "&".join([f"{k}={requests.utils.quote(str(v))}" for k, v in params.items()])
+        return f"{self.auth_base_url}?{query}"
+
+    def exchange_code_for_tokens(self, code: str) -> Dict[str, Any]:
+        """Exchange authorization code for access and refresh tokens."""
+        data = {
+            'grant_type': 'authorization_code',
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'redirect_uri': self.redirect_uri,
+            'code': code
+        }
+
+        logger.info(f"Exchanging code for tokens with data: {data}")
+        logger.info(f"Authorization code (first 10 chars): {code[:10]}...")
+        logger.info(f"Attempting connection to {self.auth_url} for token exchange")
+
+        try:
+            response = requests.post(self.auth_url, data=data, timeout=30)
+            logger.info(f"Token exchange response status: {response.status_code}")
+            if response.status_code != 200:
+                logger.error(f"Token exchange failed: {response.text}")
+            response.raise_for_status()
+            token_data = response.json()
+
+            if 'access_token' not in token_data:
+                logger.error(f"Access token not found in response. Full response: {token_data}")
+                raise ValueError(f"Invalid response from Zoho: missing access_token. Response: {token_data}")
+
+            self._access_token = token_data['access_token']
+            self.refresh_token = token_data['refresh_token']
+            expires_in = token_data.get('expires_in', 3600)
+            self._token_expires_at = time.time() + expires_in
+
+            logger.info("Successfully exchanged code for Zoho tokens")
+            return token_data
+        except requests.ConnectionError as e:
+            logger.error(f"Connection error during token exchange: {e}")
+            if isinstance(e, requests.exceptions.ConnectionError) and hasattr(e, 'args') and e.args:
+                inner_exc = e.args[0]
+                if isinstance(inner_exc, ConnectionResetError):
+                    logger.error("Connection was reset by remote host - possible firewall blocking or invalid request")
+            raise
+        except requests.RequestException as e:
+            logger.error(f"Failed to exchange code for tokens: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Response: {e.response.text}")
             raise
 
     def get_headers(self) -> Dict[str, str]:
@@ -60,8 +126,8 @@ class ZohoAuth:
 class ZohoCRMClient:
     """Client for Zoho CRM API operations."""
 
-    def __init__(self, client_id: str, client_secret: str, data_center: str = "us"):
-        self.auth = ZohoAuth(client_id, client_secret, data_center)
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str, refresh_token: Optional[str] = None, data_center: str = "us"):
+        self.auth = ZohoAuth(client_id, client_secret, redirect_uri, refresh_token, data_center)
         self.base_url = self.auth.base_url
 
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None, files: Optional[Dict] = None) -> Dict[str, Any]:
@@ -145,11 +211,13 @@ def get_zoho_client() -> ZohoCRMClient:
     """Factory function to create Zoho client from environment variables."""
     client_id = os.getenv("ZOHO_CLIENT_ID")
     client_secret = os.getenv("ZOHO_CLIENT_SECRET")
+    redirect_uri = os.getenv("ZOHO_REDIRECT_URI")
+    refresh_token = os.getenv("ZOHO_REFRESH_TOKEN")
 
-    if not client_id or not client_secret:
-        raise ValueError("ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET must be set in environment")
+    if not client_id or not client_secret or not redirect_uri:
+        raise ValueError("ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REDIRECT_URI must be set in environment")
 
     # Default to US data center, can be overridden with ZOHO_DATA_CENTER env var
     data_center = os.getenv("ZOHO_DATA_CENTER", "us")
 
-    return ZohoCRMClient(client_id, client_secret, data_center)
+    return ZohoCRMClient(client_id, client_secret, redirect_uri, refresh_token, data_center)
