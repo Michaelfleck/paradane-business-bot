@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import urllib.parse
 from typing import Dict, Any, Optional, List
 import logging
 
@@ -144,11 +145,19 @@ class ZohoCRMClient:
         try:
             response = requests.request(method, url, headers=headers, json=data, files=files, timeout=30)
             response.raise_for_status()
-            return response.json()
+            if response.status_code == 204:
+                return {"data": []}
+            try:
+                return response.json()
+            except ValueError as e:
+                logger.error(f"Failed to parse JSON response: {e}. Response body: {response.text}")
+                raise
         except requests.RequestException as e:
             logger.error(f"Zoho API request failed: {method} {url} - {e}")
             if hasattr(e, 'response') and e.response:
-                logger.error(f"Response: {e.response.text}")
+                logger.error(f"Response status: {e.response.status_code}")
+                logger.error(f"Response headers: {dict(e.response.headers)}")
+                logger.error(f"Response body: {e.response.text}")
             raise
 
     def create_lead(self, lead_data: Dict[str, Any]) -> str:
@@ -257,6 +266,7 @@ class ZohoCRMClient:
 
         if criteria_parts:
             criteria_str = "or".join(criteria_parts) if len(criteria_parts) > 1 else criteria_parts[0]
+            criteria_str = urllib.parse.quote(criteria_str)
             endpoint += f"?criteria={criteria_str}"
 
         response = self._make_request("GET", endpoint)

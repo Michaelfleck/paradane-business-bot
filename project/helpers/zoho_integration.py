@@ -238,7 +238,8 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                 # Check if contact is already linked to this lead
                 contact_id = existing_contacts[0]['id']
                 contact_details = client.get_contact(contact_id)
-                if contact_details and contact_details.get('Lead') == lead_id:
+                lead_field = contact_details.get('Lead') if contact_details else None
+                if contact_details and lead_field == lead_id:
                     logger.info(f"Contact {contact_id} for email {email} is already linked to lead {lead_id}, skipping update")
                     processed_emails.add(email)
                 else:
