@@ -147,11 +147,12 @@ def main():
                 generateBusinessReportPdf(biz_id)
                 # Generate Website Report if has website
                 website = biz.get('website')
-                logging.info(f"DEBUG: Business {biz_id} website: {website}")
-                if website:
+                menu_url = biz.get('attributes', {}).get('menu_url') if biz.get('attributes') else None
+                effective_website = website or menu_url
+                if effective_website:
                     generateWebsiteReportPdf(biz_id)
                 else:
-                    logging.info(f"DEBUG: Skipping website report for business {biz_id}, no website")
+                    logging.info(f"DEBUG: Skipping website report for business {biz_id}, no website or menu_url")
             except Exception as e:
                 logging.error(f"Failed to generate reports for business {biz_id}: {e}")
 

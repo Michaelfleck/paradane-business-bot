@@ -130,6 +130,52 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
     # Remove None values to avoid sending empty fields
     return {k: v for k, v in lead_data.items() if v is not None}
 
+def map_business_to_account(business: Dict[str, Any]) -> Dict[str, Any]:
+    """Map business data to Zoho Account fields."""
+
+    # Website priority: attributes.menu_url > google_enrichment.website > website
+    website = (
+        business.get('attributes', {}).get('menu_url') or
+        business.get('google_enrichment', {}).get('website') or
+        business.get('website')
+    )
+    website = clean_website_url(website) if website else None
+
+    # Address parsing
+    address_data = {}
+    if business.get('google_enrichment', {}).get('formatted_address'):
+        address_data = parse_address(business['google_enrichment']['formatted_address'])
+    elif business.get('formatted_address'):
+        address_data = parse_address(business['formatted_address'])
+    else:
+        # Fallback to location fields
+        location = business.get('location', {})
+        address_data = {
+            'street': location.get('address1', ''),
+            'city': location.get('city', ''),
+            'state': location.get('state', ''),
+            'zip_code': location.get('zip_code', ''),
+            'country': location.get('country', '')
+        }
+
+    # Description from Google editorial summary
+    description = business.get('google_enrichment', {}).get('editorial_summary', {}).get('overview', '')
+
+    account_data = {
+        'Account_Name': business.get('name'),
+        'Phone': business.get('phone'),
+        'Website': website,
+        'Billing_Street': address_data.get('street'),
+        'Billing_City': address_data.get('city'),
+        'Billing_State': address_data.get('state'),
+        'Billing_Code': address_data.get('zip_code'),
+        'Billing_Country': address_data.get('country'),
+        'Description': description
+    }
+
+    # Remove None values to avoid sending empty fields
+    return {k: v for k, v in account_data.items() if v is not None}
+
 def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
     """Create a Zoho lead for a business and return the lead ID. Checks for duplicates first."""
     try:
@@ -152,6 +198,46 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
         # No existing lead found, create new one
         lead_data = map_business_to_lead(business)
         lead_id = client.create_lead(lead_data)
+
+        # Create or link account
+        account_id = None
+        company_name = business.get('name')
+        if company_name:
+            # Check for existing account with same company name
+            existing_accounts = client.search_accounts({"Account_Name": company_name})
+            if existing_accounts:
+                account_id = existing_accounts[0]['id']
+                logger.info(f"Found existing Zoho account {account_id} for business {business['id']} (company: {company_name})")
+            else:
+                # Create new account
+                account_data = map_business_to_account(business)
+                try:
+                    account_id = client.create_account(account_data)
+                    logger.info(f"Created Zoho account {account_id} for business {business['id']}")
+                except Exception as e:
+                    logger.error(f"Failed to create Zoho account for business {business.get('id')}: {e}")
+
+        # Link account to lead if account was found or created
+        if account_id:
+            try:
+                update_data = {'Account': account_id}
+                client.update_lead(lead_id, update_data)
+                logger.info(f"Linked account {account_id} to lead {lead_id}")
+            except Exception as e:
+                logger.error(f"Failed to link account {account_id} to lead {lead_id}: {e}")
+
+        # Create note with emails if available
+        emails = business.get('emails', [])
+        if emails:
+            note_content = "Emails: " + ", ".join(emails)
+            note_data = {
+                'Note_Content': note_content
+            }
+            try:
+                client.create_note("Leads", lead_id, note_data)
+                logger.info(f"Added emails note to lead {lead_id}")
+            except Exception as e:
+                logger.error(f"Failed to add emails note to lead {lead_id}: {e}")
 
         # Update the business record with the Zoho lead ID
         supabase_client = get_client()

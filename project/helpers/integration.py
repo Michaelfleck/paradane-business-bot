@@ -96,6 +96,12 @@ def merge_business_data(yelp_business: dict, google_business: Optional[dict] = N
     if google_enrichment:
         merged["google_enrichment"] = google_enrichment
 
+    # Set website from menu_url if not present
+    if not merged.get("website"):
+        menu_url = merged.get("attributes", {}).get("menu_url")
+        if menu_url:
+            merged["website"] = menu_url
+
     return merged
 
 
@@ -110,7 +116,7 @@ def normalize_for_supabase(business: dict) -> dict:
         "rating", "location", "coordinates", "photos", "price",
         "hours", "transactions", "messaging", "attributes",
         "special_hours", "photo_details", "popularity_score", "rapc",
-        "google_enrichment"
+        "website", "google_enrichment"
     ]
 
     normalized = {}

@@ -204,6 +204,18 @@ class ZohoCRMClient:
             logger.info(f"Updated Zoho contact: {contact_id}")
             return True
         return False
+
+    def create_note(self, module: str, record_id: str, note_data: Dict[str, Any]) -> str:
+        """Create a new note for a record in Zoho CRM. Returns the note ID."""
+        endpoint = f"/crm/v2/{module}/{record_id}/Notes"
+        response = self._make_request("POST", endpoint, {"data": [note_data]})
+
+        if 'data' in response and response['data']:
+            note_id = response['data'][0]['details']['id']
+            logger.info(f"Created Zoho note: {note_id}")
+            return note_id
+        else:
+            raise ValueError("Failed to create note - no ID returned")
     def get_contact(self, contact_id: str) -> Optional[Dict[str, Any]]:
         """Get a contact by ID from Zoho CRM."""
         endpoint = f"/crm/v2/Contacts/{contact_id}"
@@ -261,6 +273,53 @@ class ZohoCRMClient:
     def search_contacts(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search for contacts based on criteria."""
         endpoint = "/crm/v2/Contacts/search"
+        # Zoho CRM search format: criteria=(field:operator:value)
+        criteria_parts = []
+        for field, value in criteria.items():
+            criteria_parts.append(f"({field}:equals:{value})")
+
+        if criteria_parts:
+            criteria_str = "or".join(criteria_parts) if len(criteria_parts) > 1 else criteria_parts[0]
+            criteria_str = urllib.parse.quote(criteria_str)
+            endpoint += f"?criteria={criteria_str}"
+
+        response = self._make_request("GET", endpoint)
+        return response.get('data', [])
+
+    def create_account(self, account_data: Dict[str, Any]) -> str:
+        """Create a new account in Zoho CRM. Returns the account ID."""
+        endpoint = "/crm/v2/Accounts"
+        response = self._make_request("POST", endpoint, {"data": [account_data]})
+
+        if 'data' in response and response['data']:
+            account_id = response['data'][0]['details']['id']
+            logger.info(f"Created Zoho account: {account_id}")
+            return account_id
+        else:
+            raise ValueError("Failed to create account - no ID returned")
+
+    def update_account(self, account_id: str, account_data: Dict[str, Any]) -> bool:
+        """Update an existing account in Zoho CRM."""
+        endpoint = f"/crm/v2/Accounts/{account_id}"
+        response = self._make_request("PUT", endpoint, {"data": [account_data]})
+
+        if 'data' in response and response['data']:
+            logger.info(f"Updated Zoho account: {account_id}")
+            return True
+        return False
+
+    def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
+        """Get an account by ID from Zoho CRM."""
+        endpoint = f"/crm/v2/Accounts/{account_id}"
+        response = self._make_request("GET", endpoint)
+
+        if 'data' in response and response['data']:
+            return response['data'][0]
+        return None
+
+    def search_accounts(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search for accounts based on criteria."""
+        endpoint = "/crm/v2/Accounts/search"
         # Zoho CRM search format: criteria=(field:operator:value)
         criteria_parts = []
         for field, value in criteria.items():
