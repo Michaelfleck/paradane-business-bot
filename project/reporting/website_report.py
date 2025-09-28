@@ -17,10 +17,12 @@ Per row placeholders:
 """
 
 import os
+import re
 from typing import Any, Dict, List
 import html
 from datetime import datetime
 import pathlib
+import logging
 
 from project.libs.supabase_client import get_client
 from project.reporting.renderer import (
@@ -29,7 +31,9 @@ from project.reporting.renderer import (
 )
 from project.reporting.config import get_report_config
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
-from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id
+from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id, check_report_attachment_exists
+
+logger = logging.getLogger(__name__)
 
 
 def _fetch_pages(business_id: str) -> List[Dict[str, Any]]:
@@ -76,8 +80,6 @@ def _escape_html(val: Any) -> str:
         return "N/A"
     # Escape special chars and quotes so HTML-like text is shown literally
     return html.escape(s, quote=True)
-
-
 
 
 
@@ -237,20 +239,27 @@ def generateWebsiteReportPdf(business_id: str, to_path: str | None = None, uploa
     Returns:
         str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
     """
+    logger.info(f"Starting Website Report PDF generation for business {business_id}")
     cfg = get_report_config()
     html = generateWebsiteReport(business_id)
     html_with_styles = _inject_report_styles(html)
-
-    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
-    os.makedirs(out_dir, exist_ok=True)
-    if to_path is None:
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        to_path = os.path.join(out_dir, f"website-{business_id}-{ts}.pdf")
 
     # Get business name for PDF title
     from project.reporting.business_report import _fetch_business
     biz = _fetch_business(business_id)
     business_name = biz.get("name") or "Business"
+    safe_name = re.sub(r'[^\w\-_\. ]', '_', business_name)
+    out_dir = f"/tmp/reports/{safe_name}"
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create output directory {out_dir}: {e}")
+        raise ValueError(f"Cannot create output directory {out_dir}")
+    if to_path is None:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        to_path = os.path.join(out_dir, f"website-{business_id}-{ts}.pdf")
+
+    logger.info(f"Generating PDF to path: {to_path}")
     pdf_title = f"{business_name} - Website Report"
 
     # Create custom PDF options with business-specific title
@@ -260,20 +269,39 @@ def generateWebsiteReportPdf(business_id: str, to_path: str | None = None, uploa
 
     base_url = pathlib.Path(_project_root_abs()).as_uri()
     html_to_pdf_file(html_with_styles, to_path, base_url=base_url, options=pdf_options)
+    logger.info(f"PDF generated successfully at {to_path}")
 
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
     if do_upload:
+        logger.info(f"Uploading PDF to Supabase storage")
         uploaded_url = upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+        logger.info(f"PDF uploaded to {uploaded_url}")
     else:
         uploaded_url = to_path
+        logger.info(f"PDF not uploaded, using local path {uploaded_url}")
 
     # Attach PDF to Zoho CRM lead
     try:
+        logger.info(f"Attempting to attach Website Report PDF to Zoho lead for business {business_id}")
         lead_id = get_lead_id_by_business_id(business_id)
+        logger.info(f"Lead ID for business {business_id}: {lead_id}")
         if lead_id:
-            attach_pdf_to_lead(lead_id, to_path, "Website Report")
+            business_name = biz.get("name") or "Business"
+            exists = check_report_attachment_exists(lead_id, "Website Report", business_name)
+            logger.info(f"Website Report attachment exists for lead {lead_id}: {exists}")
+            if not exists:
+                logger.info(f"Attaching Website Report PDF to lead {lead_id}")
+                success = attach_pdf_to_lead(lead_id, to_path, "Website Report")
+                if success:
+                    logger.info(f"Successfully attached Website Report PDF to lead {lead_id}")
+                else:
+                    logger.warning(f"Failed to attach Website Report PDF to lead {lead_id}")
+            else:
+                logger.info(f"Website Report already exists for lead {lead_id}, skipping attachment")
+        else:
+            logger.warning(f"No lead ID found for business {business_id}, skipping attachment")
     except Exception as e:
-        print(f"Failed to attach Website Report PDF to Zoho lead for business {business_id}: {e}")
+        logger.error(f"Failed to check/attach Website Report PDF to Zoho lead for business {business_id}: {e}")
 
     return uploaded_url
 

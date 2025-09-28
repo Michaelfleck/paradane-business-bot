@@ -134,6 +134,31 @@ def main():
         logging.info("Starting business_pages processing for enriched businesses")
         asyncio.run(run_pipelines())
         logging.info("Completed business_pages processing")
+
+        # Generate reports for businesses (multi-threaded)
+        import concurrent.futures
+
+        def generate_reports_for_business(biz):
+            biz_id = biz.get('id')
+            if not biz_id:
+                return
+            try:
+                # Generate Business Report
+                generateBusinessReportPdf(biz_id)
+                # Generate Website Report if has website
+                if biz.get('website'):
+                    generateWebsiteReportPdf(biz_id)
+            except Exception as e:
+                logging.error(f"Failed to generate reports for business {biz_id}: {e}")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(generate_reports_for_business, biz) for biz in businesses if biz.get('id')]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Report generation task failed: {e}")
+        logging.info("Completed report generation")
     elif args.command == "report":
         _ = get_report_config()  # ensure config loads
         if args.pdf:

@@ -52,6 +52,20 @@ def clean_website_url(url: str) -> str:
 
     return f"https://{url}"
 
+def parse_social_links(social_links: str) -> Dict[str, str]:
+    """Parse social links string into a dictionary."""
+    links = {}
+    if not social_links:
+        return links
+
+    for item in social_links.split(','):
+        item = item.strip()
+        if ':' in item:
+            key, value = item.split(':', 1)
+            links[key.strip()] = value.strip()
+
+    return links
+
 def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
     """Map business data to Zoho Lead fields according to spec."""
 
@@ -83,6 +97,10 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
     # Description from Google editorial summary
     description = business.get('google_enrichment', {}).get('editorial_summary', {}).get('overview', '')
 
+    # Parse social links to extract Twitter
+    social_links = parse_social_links(business.get('social_links', ''))
+    twitter = social_links.get('twitter')
+
     lead_data = {
         'First_Name': None,  # Empty as per spec
         'Title': None,  # Empty as per spec
@@ -100,7 +118,7 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
         'No_of_Employees': None,  # Empty as per spec
         'Rating': None,  # Empty as per spec
         'Secondary_Email': None,  # Empty as per spec
-        'Twitter': None,  # Empty as per spec
+        'Twitter': twitter,
         'Street': address_data.get('street'),
         'City': address_data.get('city'),
         'State': address_data.get('state'),
@@ -144,6 +162,18 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
     except Exception as e:
         logger.error(f"Failed to create Zoho lead for business {business.get('id')}: {e}")
         return None
+
+def update_lead(lead_id: str, lead_data: Dict[str, Any]) -> bool:
+    """Update an existing lead in Zoho CRM."""
+    try:
+        client = get_zoho_client()
+        success = client.update_lead(lead_id, lead_data)
+        if success:
+            logger.info(f"Updated lead {lead_id}")
+        return success
+    except Exception as e:
+        logger.error(f"Failed to update lead {lead_id}: {e}")
+        return False
 
 def update_lead_with_emails(lead_id: str, emails: List[str]) -> bool:
     """Update Zoho lead with email addresses."""
@@ -280,3 +310,17 @@ def get_lead_id_by_business_id(business_id: str) -> Optional[str]:
         return response.data.get("zoho_lead_id") if response.data else None
     except Exception:
         return None
+
+def check_report_attachment_exists(lead_id: str, report_type: str, business_name: str) -> bool:
+    """Check if a report attachment already exists for the lead."""
+    try:
+        client = get_zoho_client()
+        attachments = client.get_attachments("Leads", lead_id)
+        expected_name = f"{report_type} - {business_name}.pdf"
+        for att in attachments:
+            if att.get("File_Name") == expected_name:
+                return True
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check attachments for lead {lead_id}: {e}")
+        return False  # On error, assume not exists to allow upload

@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import base64
 import logging
 import os
+import re
 from urllib.parse import urlencode, quote_plus
 import pathlib
 from datetime import datetime
@@ -27,7 +28,8 @@ from project.libs.openrouter_client import generate_rank_summary
 from project.libs.openrouter_client import summarize_page as or_summarize_page
 from project.libs.openrouter_client import generate_business_summary
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
-from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id
+from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id, check_report_attachment_exists, update_lead
+from project.libs.zoho_client import get_zoho_client
 
 # Logger
 logger = logging.getLogger("project.reporting.business_report")
@@ -519,6 +521,51 @@ def _reorder_emails_by_domain(emails: List[str], website_root: Optional[str]) ->
     return sorted(emails, key=_score)
 
 
+def get_editorial_summary(business_id: str) -> str:
+    """Generate editorial summary for a business."""
+    biz = _fetch_business(business_id)
+
+    # Resolve fields
+    name = biz.get("name") or "N/A"
+    price = biz.get("price") or "N/A"
+    yelp_total_reviews = biz.get("review_count")
+    if yelp_total_reviews is None:
+        yelp_total_reviews = "N/A"
+    yelp_rating = biz.get("rating") or "N/A"
+    status = _resolve_status(biz)
+    categories = _resolve_categories(biz)
+
+    raw_yelp = biz.get("url") or ""
+    if raw_yelp and isinstance(raw_yelp, str):
+        yelp_url = raw_yelp.split("?", 1)[0]
+    else:
+        yelp_url = "N/A"
+
+    website_root = _resolve_website(biz)
+    website_url = website_root or "N/A"
+
+    open_days = _resolve_hours(biz)
+
+    addr1, city, state, country = _resolve_address(biz)
+    emails = collectBusinessEmails(business_id)
+    emails = _reorder_emails_by_domain(emails, website_root)
+    emails_str = ", ".join(emails) if emails else "N/A"
+
+    cfg = get_report_config()
+    raw_phone = biz.get("phone") or biz.get("display_phone")
+    normalized_phone = normalizePhone(raw_phone, cfg.DEFAULT_PHONE_COUNTRY) or "N/A"
+
+    business_info = f"Name: {name}\nCategories: {categories}\nAddress: {addr1}, {city}, {state}, {country}\nPhone: {normalized_phone}\nWebsite: {website_url}\nRating: {yelp_rating} (Yelp)\nReviews: {yelp_total_reviews} (Yelp)\nStatus: {status}\nHours: {open_days}\nPrice: {price}\nYelp URL: {yelp_url}\nEmails: {emails_str}"
+    editorial_summary = "—"
+    if business_info.strip():
+        try:
+            editorial_summary = generate_business_summary(business_info)
+        except Exception as e:
+            logger.warning(f"Failed to generate editorial summary via OpenRouter: {e}")
+            editorial_summary = "—"
+    return editorial_summary
+
+
 def generateBusinessReport(business_id: str) -> str:
     """
     Generate the Business Report HTML for a given business_id.
@@ -728,14 +775,7 @@ def generateBusinessReport(business_id: str) -> str:
     ge: Dict[str, Any] = _safe_get(biz, "google_enrichment", {}) or {}
 
     # Editorial summary: Generate from business information using OpenRouter
-    business_info = f"Name: {name}\nCategories: {categories}\nAddress: {addr1}, {city}, {state}, {country}\nPhone: {normalized_phone}\nWebsite: {website_url}\nRating: {yelp_rating} (Yelp)\nReviews: {yelp_total_reviews} (Yelp)\nStatus: {status}\nHours: {open_days}\nPrice: {price}\nYelp URL: {yelp_url}\nEmails: {emails_str}"
-    editorial_summary = "—"
-    if business_info.strip():
-        try:
-            editorial_summary = generate_business_summary(business_info)
-        except Exception as e:
-            logger.warning(f"Failed to generate editorial summary via OpenRouter: {e}")
-            editorial_summary = "—"
+    editorial_summary = get_editorial_summary(business_id)
 
     # Plus codes (global_code, compound_code) live under google_enrichment.plus_code per Google Places schema
     plus_code = ge.get("plus_code") if isinstance(ge, dict) else None
@@ -1135,20 +1175,25 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
         str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
     """
     cfg = get_report_config()
+    biz = _fetch_business(business_id)
     html = generateBusinessReport(business_id)
     # Inject precompiled Tailwind and print CSS
     html_with_styles = _inject_report_styles(html)
 
     # Determine output path
-    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
-    os.makedirs(out_dir, exist_ok=True)
+    business_name = biz.get("name") or "Business"
+    safe_name = re.sub(r'[^\w\-_\. ]', '_', business_name)
+    out_dir = f"/tmp/reports/{safe_name}"
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create output directory {out_dir}: {e}")
+        raise ValueError(f"Cannot create output directory {out_dir}")
     if to_path is None:
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-{business_id}-{ts}.pdf")
 
-    # Get business name for PDF title
-    biz = _fetch_business(business_id)
-    business_name = biz.get("name") or "Business"
+    # Get business name for PDF title (already have business_name)
     pdf_title = f"{business_name} - Business Report"
 
     # Create custom PDF options with business-specific title
@@ -1167,13 +1212,22 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
     else:
         uploaded_url = to_path
 
-    # Attach PDF to Zoho CRM lead
+    # Attach PDF to Zoho CRM lead and update description if empty (only when uploading for first time)
     try:
         lead_id = get_lead_id_by_business_id(business_id)
         if lead_id:
-            attach_pdf_to_lead(lead_id, to_path, "Business Report")
+            if not check_report_attachment_exists(lead_id, "Business Report", business_name):
+                editorial_summary = get_editorial_summary(business_id)
+                if editorial_summary != "—":
+                    client = get_zoho_client()
+                    lead = client.get_lead(lead_id)
+                    if lead and not lead.get('Description'):
+                        update_lead(lead_id, {"Description": editorial_summary})
+                attach_pdf_to_lead(lead_id, to_path, "Business Report")
+            else:
+                logger.info(f"Business Report already exists for lead {lead_id}, skipping attachment and description update")
     except Exception as e:
-        logger.warning(f"Failed to attach Business Report PDF to Zoho lead for business {business_id}: {e}")
+        logger.warning(f"Failed to update/check/attach Business Report PDF to Zoho lead for business {business_id}: {e}")
 
     return uploaded_url
 
@@ -1186,20 +1240,25 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
         str: Local file path if upload is False, otherwise the public URL from Supabase Storage.
     """
     cfg = get_report_config()
+    biz = _fetch_business(business_id)
     html = generateBusinessRankLocalReport(business_id)
     # Inject precompiled Tailwind and print CSS
     html_with_styles = _inject_report_styles(html)
 
     # Determine output path
-    out_dir = cfg.REPORTS_OUTPUT_DIR or "./tmp/reports"
-    os.makedirs(out_dir, exist_ok=True)
+    business_name = biz.get("name") or "Business"
+    safe_name = re.sub(r'[^\w\-_\. ]', '_', business_name)
+    out_dir = f"/tmp/reports/{safe_name}"
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to create output directory {out_dir}: {e}")
+        raise ValueError(f"Cannot create output directory {out_dir}")
     if to_path is None:
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         to_path = os.path.join(out_dir, f"business-visibility-{business_id}-{ts}.pdf")
 
-    # Get business name for PDF title
-    biz = _fetch_business(business_id)
-    business_name = biz.get("name") or "Business"
+    # Get business name for PDF title (already have business_name)
     pdf_title = f"{business_name} - Visibility Report"
 
     # Create custom PDF options with business-specific title
@@ -1222,9 +1281,12 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
     try:
         lead_id = get_lead_id_by_business_id(business_id)
         if lead_id:
-            attach_pdf_to_lead(lead_id, to_path, "Visibility Report")
+            if not check_report_attachment_exists(lead_id, "Visibility Report", business_name):
+                attach_pdf_to_lead(lead_id, to_path, "Visibility Report")
+            else:
+                logger.info(f"Visibility Report already exists for lead {lead_id}, skipping attachment")
     except Exception as e:
-        logger.warning(f"Failed to attach Visibility Report PDF to Zoho lead for business {business_id}: {e}")
+        logger.warning(f"Failed to check/attach Visibility Report PDF to Zoho lead for business {business_id}: {e}")
 
     return uploaded_url
 

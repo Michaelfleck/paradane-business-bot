@@ -203,6 +203,15 @@ class ZohoCRMClient:
             return response['data'][0]
         return None
 
+    def get_lead(self, lead_id: str) -> Optional[Dict[str, Any]]:
+        """Get a lead by ID from Zoho CRM."""
+        endpoint = f"/crm/v2/Leads/{lead_id}"
+        response = self._make_request("GET", endpoint)
+
+        if 'data' in response and response['data']:
+            return response['data'][0]
+        return None
+
 
     def attach_document(self, module: str, record_id: str, file_path: str, file_name: str) -> bool:
         """Attach a document to a record (lead/contact)."""
@@ -216,6 +225,12 @@ class ZohoCRMClient:
             logger.info(f"Attached document {file_name} to {module}/{record_id}")
             return True
         return False
+
+    def get_attachments(self, module: str, record_id: str) -> List[Dict[str, Any]]:
+        """Get list of attachments for a record."""
+        endpoint = f"/crm/v2/{module}/{record_id}/Attachments"
+        response = self._make_request("GET", endpoint)
+        return response.get('data', [])
 
     def search_leads(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search for leads based on criteria."""
