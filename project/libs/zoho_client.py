@@ -251,6 +251,7 @@ class ZohoCRMClient:
 
         if criteria_parts:
             criteria_str = "or".join(criteria_parts) if len(criteria_parts) > 1 else criteria_parts[0]
+            criteria_str = urllib.parse.quote(criteria_str)
             endpoint += f"?criteria={criteria_str}"
 
         response = self._make_request("GET", endpoint)
