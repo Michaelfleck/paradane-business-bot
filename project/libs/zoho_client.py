@@ -145,6 +145,7 @@ class ZohoCRMClient:
         try:
             response = requests.request(method, url, headers=headers, json=data, files=files, timeout=30)
             response.raise_for_status()
+            # Handle 204 No Content (e.g., search with no results)
             if response.status_code == 204:
                 return {"data": []}
             try:
