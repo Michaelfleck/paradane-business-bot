@@ -94,9 +94,6 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
             'country': location.get('country', '')
         }
 
-    # Description from Google editorial summary
-    description = business.get('google_enrichment', {}).get('editorial_summary', {}).get('overview', '')
-
     # Parse social links to extract Twitter
     social_links = parse_social_links(business.get('social_links', ''))
     twitter = social_links.get('twitter')
@@ -124,7 +121,6 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
         'State': address_data.get('state'),
         'Zip_Code': address_data.get('zip_code'),
         'Country': address_data.get('country'),
-        'Description': description
     }
 
     # Remove None values to avoid sending empty fields
@@ -158,9 +154,6 @@ def map_business_to_account(business: Dict[str, Any]) -> Dict[str, Any]:
             'country': location.get('country', '')
         }
 
-    # Description from Google editorial summary
-    description = business.get('google_enrichment', {}).get('editorial_summary', {}).get('overview', '')
-
     account_data = {
         'Account_Name': business.get('name'),
         'Phone': business.get('phone'),
@@ -170,7 +163,23 @@ def map_business_to_account(business: Dict[str, Any]) -> Dict[str, Any]:
         'Billing_State': address_data.get('state'),
         'Billing_Code': address_data.get('zip_code'),
         'Billing_Country': address_data.get('country'),
-        'Description': description
+    }
+
+    # Remove None values to avoid sending empty fields
+    return {k: v for k, v in account_data.items() if v is not None}
+
+def map_lead_to_account(lead: Dict[str, Any]) -> Dict[str, Any]:
+    """Map lead data to Zoho Account fields."""
+
+    account_data = {
+        'Account_Name': lead.get('Company'),
+        'Phone': lead.get('Phone'),
+        'Website': lead.get('Website'),
+        'Billing_Street': lead.get('Street'),
+        'Billing_City': lead.get('City'),
+        'Billing_State': lead.get('State'),
+        'Billing_Code': lead.get('Zip_Code'),
+        'Billing_Country': lead.get('Country'),
     }
 
     # Remove None values to avoid sending empty fields
@@ -319,7 +328,18 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
         lead_details = client.get_lead(lead_id)
         account_id = lead_details.get('Account') if lead_details else None
         if not account_id:
-            logger.info(f"No account linked to lead {lead_id}, contacts will not be linked to account")
+            # Create account from lead data and link to lead
+            account_data = map_lead_to_account(lead_details)
+            try:
+                account_id = client.create_account(account_data)
+                logger.info(f"Created Zoho account {account_id} for lead {lead_id}")
+                # Link account to lead
+                update_data = {'Account': account_id}
+                client.update_lead(lead_id, update_data)
+                logger.info(f"Linked account {account_id} to lead {lead_id}")
+            except Exception as e:
+                logger.error(f"Failed to create/link account for lead {lead_id}: {e}")
+                # Continue without account
 
         processed_emails = set()
 
