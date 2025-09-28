@@ -12,7 +12,7 @@ from project.helpers.page_processor import PageProcessor
 from project.helpers.pagespeed import PageSpeedClient
 from project.helpers.storage import StorageClient
 from project.helpers.seo_analyzer import analyze_html
-from project.helpers.zoho_integration import update_lead_with_emails, create_contacts_for_emails, get_lead_id_by_business_id
+from project.helpers.zoho_integration import update_lead_with_emails, create_contacts_for_emails, get_lead_id_by_business_id, add_or_update_emails_note
 from project.libs.openrouter_client import summarize_page as or_summarize_page, classify_page as or_classify_page
 
 
@@ -273,8 +273,14 @@ class BusinessPipeline:
         try:
             lead_id = get_lead_id_by_business_id(self.business_id)
             if lead_id:
-                # Collect unique emails from business_pages
+                # Collect unique emails from business record and business_pages
                 emails = set()
+                # From business record
+                business = self.storage.get_business(self.business_id)
+                if business and business.get('emails'):
+                    business_emails = [e.strip() for e in business['emails'] if e.strip()]
+                    emails.update(business_emails)
+                # From crawled pages
                 pages = self.storage.get_business_pages(self.business_id)
                 for page in pages:
                     if page.get('email'):
@@ -286,5 +292,6 @@ class BusinessPipeline:
                 if emails_list:
                     update_lead_with_emails(lead_id, emails_list)
                     create_contacts_for_emails(lead_id, emails_list)
+                    add_or_update_emails_note(lead_id, emails_list)
         except Exception as e:
             print(f"Error updating Zoho lead for business {self.business_id}: {e}")

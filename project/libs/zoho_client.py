@@ -216,6 +216,22 @@ class ZohoCRMClient:
             return note_id
         else:
             raise ValueError("Failed to create note - no ID returned")
+
+    def get_notes(self, module: str, record_id: str) -> List[Dict[str, Any]]:
+        """Get list of notes for a record."""
+        endpoint = f"/crm/v2/{module}/{record_id}/Notes"
+        response = self._make_request("GET", endpoint)
+        return response.get('data', [])
+
+    def update_note(self, module: str, record_id: str, note_id: str, note_data: Dict[str, Any]) -> bool:
+        """Update an existing note in Zoho CRM."""
+        endpoint = f"/crm/v2/{module}/{record_id}/Notes/{note_id}"
+        response = self._make_request("PUT", endpoint, {"data": [note_data]})
+
+        if 'data' in response and response['data']:
+            logger.info(f"Updated Zoho note: {note_id}")
+            return True
+        return False
     def get_contact(self, contact_id: str) -> Optional[Dict[str, Any]]:
         """Get a contact by ID from Zoho CRM."""
         endpoint = f"/crm/v2/Contacts/{contact_id}"

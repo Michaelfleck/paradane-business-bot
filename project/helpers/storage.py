@@ -131,6 +131,25 @@ class StorageClient:
         except Exception as e:
             logging.warning(f"get_business_pages failed for {business_id}: {e}")
             return []
+    def get_business(self, business_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single business record by business_id.
+        Returns a dict with business fields or None if not found.
+        """
+        try:
+            resp = (
+                self.client.table("businesses")
+                .select("*")
+                .eq("id", business_id)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(resp, "data", None) or []
+            return rows[0] if rows else None
+        except Exception as e:
+            logging.warning(f"get_business failed for {business_id}: {e}")
+            return None
+
 
     def insert_business_page(self, page: Dict[str, Any]):
         """

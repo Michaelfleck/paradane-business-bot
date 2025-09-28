@@ -216,6 +216,8 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
                     logger.info(f"Created Zoho account {account_id} for business {business['id']}")
                 except Exception as e:
                     logger.error(f"Failed to create Zoho account for business {business.get('id')}: {e}")
+        else:
+            logger.info(f"Skipping account creation for business {business['id']} due to missing company name")
 
         # Link account to lead if account was found or created
         if account_id:
@@ -312,6 +314,13 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
 
     try:
         client = get_zoho_client()
+
+        # Retrieve lead to get associated account ID
+        lead_details = client.get_lead(lead_id)
+        account_id = lead_details.get('Account') if lead_details else None
+        if not account_id:
+            logger.info(f"No account linked to lead {lead_id}, contacts will not be linked to account")
+
         processed_emails = set()
 
         for email in emails:
@@ -329,8 +338,10 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                     logger.info(f"Contact {contact_id} for email {email} is already linked to lead {lead_id}, skipping update")
                     processed_emails.add(email)
                 else:
-                    # Update existing contact to link with the lead
+                    # Update existing contact to link with the lead and account
                     update_data = {'Lead': lead_id}
+                    if account_id:
+                        update_data['Account'] = account_id
                     success = client.update_contact(contact_id, update_data)
                     if success:
                         logger.info(f"Linked existing contact {contact_id} for email {email} to lead {lead_id}")
@@ -348,6 +359,8 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                     'Lead_Source': 'Web Research',
                     'Lead': lead_id  # Link to lead during creation
                 }
+                if account_id:
+                    contact_data['Account'] = account_id  # Link to account during creation
 
                 # Remove None values
                 contact_data = {k: v for k, v in contact_data.items() if v is not None}
@@ -397,6 +410,40 @@ def get_lead_id_by_business_id(business_id: str) -> Optional[str]:
         return response.data.get("zoho_lead_id") if response.data else None
     except Exception:
         return None
+
+def add_or_update_emails_note(lead_id: str, emails: List[str]) -> bool:
+    """Add or update a note with emails on the lead."""
+    if not emails:
+        return True
+
+    try:
+        client = get_zoho_client()
+        note_content = "Emails: " + ", ".join(emails)
+
+        # Get existing notes for the lead
+        notes = client.get_notes("Leads", lead_id)
+        emails_note = None
+        for note in notes:
+            if note.get('Note_Content', '').startswith('Emails: '):
+                emails_note = note
+                break
+
+        if emails_note:
+            # Update existing note
+            note_data = {'Note_Content': note_content}
+            success = client.update_note("Leads", lead_id, emails_note['id'], note_data)
+            if success:
+                logger.info(f"Updated emails note for lead {lead_id}")
+            return success
+        else:
+            # Create new note
+            note_data = {'Note_Content': note_content}
+            note_id = client.create_note("Leads", lead_id, note_data)
+            logger.info(f"Created emails note {note_id} for lead {lead_id}")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to add/update emails note for lead {lead_id}: {e}")
+        return False
 
 def check_report_attachment_exists(lead_id: str, report_type: str, business_name: str) -> bool:
     """Check if a report attachment already exists for the lead."""
