@@ -13,3 +13,5 @@ pytesseract
 Pillow
 accelerate
 matplotlib
+python-dotenv
+requests

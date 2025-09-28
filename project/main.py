@@ -14,7 +14,7 @@ from project.helpers.integration import (
 )
 from project.helpers.zoho_integration import create_zoho_lead_for_business
 from project.libs.yelp_client import YelpClient
-from project.libs.google_client import GoogleClient
+# from project.libs.google_client import GoogleClient
 from project.reporting.config import get_report_config
 from project.reporting.business_report import generateBusinessReport, generateBusinessReportPdf, generateBusinessRankLocalReport, generateBusinessRankLocalReportPdf
 from project.reporting.website_report import generateWebsiteReport, generateWebsiteReportPdf
@@ -56,7 +56,6 @@ def main():
 
     # Report rendering command
     report_parser = subparsers.add_parser("report", help="Render report HTML or PDF")
-    report_parser.add_argument("--type", choices=["business", "website", "business-visibility"], required=True, help="Report type")
     report_parser.add_argument("--business-id", required=True, help="Business ID")
     report_parser.add_argument("--pdf", action="store_true", help="Output PDF instead of HTML")
     report_parser.add_argument("--out", required=False, help="Output path for PDF or HTML file")

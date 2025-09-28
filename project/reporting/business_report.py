@@ -311,7 +311,7 @@ def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optiona
     size = cfg.MAP_DEFAULT_SIZE or "1000x800"
     width, height = size.split('x')
     params = {
-        "style": "osm-carto",
+        "style": "osm-bright",
         "width": width,
         "height": height,
         "center": f"lonlat:{lng},{lat}",

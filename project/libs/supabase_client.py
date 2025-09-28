@@ -1,6 +1,7 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import httpx
 
 
 # Load environment variables from .env
@@ -26,6 +27,8 @@ def _init_client() -> Client:
 
     if _client is None:
         _client = create_client(_SUPABASE_URL, _SUPABASE_SERVICE_KEY)
+        # Set longer timeouts on the underlying httpx session to handle slow connections
+        _client.postgrest.session.timeout = httpx.Timeout(30.0, connect=30.0)
 
     return _client
 
