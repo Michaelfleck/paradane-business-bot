@@ -12,7 +12,7 @@ from project.helpers.integration import (
     normalize_for_supabase,
     upsert_businesses,
 )
-from project.helpers.zoho_integration import create_zoho_lead_for_business
+from project.helpers.zoho_integration import create_zoho_lead_for_business, attach_image_to_lead
 from project.helpers.crawler import normalize_homepage_url
 from project.libs.yelp_client import YelpClient
 # from project.libs.google_client import GoogleClient
@@ -88,7 +88,10 @@ def main():
         # Create Zoho CRM leads for each business
         for biz in businesses:
             try:
-                create_zoho_lead_for_business(biz)
+                lead_id = create_zoho_lead_for_business(biz)
+                if lead_id:
+                    # Attach business image to the lead
+                    attach_image_to_lead(biz['id'], lead_id)
             except Exception as e:
                 logging.error(f"Failed to create Zoho lead for business {biz.get('id')}: {e}")
         logging.info("Created Zoho CRM leads for businesses")

@@ -387,7 +387,7 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                     # Update existing contact to link with the lead and account
                     update_data = {'Lead': lead_id}
                     if account_id:
-                        update_data['Account'] = account_id
+                        update_data['Account_Name'] = account_id
                     logger.info(f"Updating existing contact {contact_id} with data: {update_data}")
                     success = client.update_contact(contact_id, update_data)
                     if success:
@@ -407,7 +407,7 @@ def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
                     'Lead': lead_id  # Link to lead during creation
                 }
                 if account_id:
-                    contact_data['Account'] = account_id  # Link to account during creation
+                    contact_data['Account_Name'] = account_id  # Link to account during creation
 
                 # Remove None values
                 contact_data = {k: v for k, v in contact_data.items() if v is not None}
@@ -523,6 +523,7 @@ def check_image_attachment_exists(lead_id: str, business_name: str) -> bool:
 
 def attach_image_to_lead(business_id: str, lead_id: str) -> bool:
     """Attach the business image from image_url to a Zoho lead."""
+    logger.info(f"attach_image_to_lead called for business_id={business_id}, lead_id={lead_id}")
     try:
         # Get image_url and business name
         supabase_client = get_client()
@@ -533,35 +534,46 @@ def attach_image_to_lead(business_id: str, lead_id: str) -> bool:
 
         image_url = response.data["image_url"]
         business_name = response.data.get("name", "Business")
+        logger.info(f"Retrieved image_url='{image_url}' and business_name='{business_name}' for business {business_id}")
 
         # Check if image already attached
-        if check_image_attachment_exists(lead_id, business_name):
+        exists = check_image_attachment_exists(lead_id, business_name)
+        logger.info(f"Image attachment exists check for lead {lead_id}, business {business_name}: {exists}")
+        if exists:
             logger.info(f"Image already attached to lead {lead_id} for business {business_name}")
             return True
 
         # Download the image
+        logger.info(f"Attempting to download image from {image_url}")
         response_img = requests.get(image_url, timeout=30)
         response_img.raise_for_status()
+        logger.info(f"Successfully downloaded image, status={response_img.status_code}, content-length={response_img.headers.get('content-length', 'unknown')}")
 
         content_type = response_img.headers.get('content-type', 'image/jpeg')
         ext = mimetypes.guess_extension(content_type) or '.jpg'
         file_name = f"Business Image - {business_name}{ext}"
+        logger.info(f"Detected content_type='{content_type}', extension='{ext}', file_name='{file_name}'")
 
         # Save to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
             temp_file.write(response_img.content)
             temp_file_path = temp_file.name
+        logger.info(f"Saved image to temp file: {temp_file_path}, size={len(response_img.content)} bytes")
 
         try:
             # Attach to Zoho lead
+            logger.info(f"Attempting to attach document to Zoho lead {lead_id}: file_name='{file_name}', content_type='{content_type}'")
             client = get_zoho_client()
             success = client.attach_document("Leads", lead_id, temp_file_path, file_name, content_type)
             if success:
-                logger.info(f"Attached image to lead {lead_id} for business {business_id}")
+                logger.info(f"Successfully attached image to lead {lead_id} for business {business_id}")
+            else:
+                logger.error(f"Zoho attach_document returned False for lead {lead_id}, file {file_name}")
             return success
         finally:
             # Clean up temp file
             os.unlink(temp_file_path)
+            logger.info(f"Cleaned up temp file: {temp_file_path}")
 
     except Exception as e:
         logger.error(f"Failed to attach image to lead {lead_id} for business {business_id}: {e}")
