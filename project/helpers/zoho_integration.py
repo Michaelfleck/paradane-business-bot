@@ -183,7 +183,8 @@ def derive_name_from_email(email: str) -> Tuple[Optional[str], Optional[str]]:
     for pattern, extractor in patterns:
         match = re.match(pattern, local_part)
         if match:
-            return extractor(match)
+            first, last = extractor(match)
+            return first, last
 
     # For ambiguous cases, use as last name only to avoid incorrect assumptions
     return None, local_part.capitalize()
