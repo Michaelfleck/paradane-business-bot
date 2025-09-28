@@ -12,6 +12,7 @@ from project.helpers.integration import (
     normalize_for_supabase,
     upsert_businesses,
 )
+from project.helpers.zoho_integration import create_zoho_lead_for_business
 from project.libs.yelp_client import YelpClient
 from project.libs.google_client import GoogleClient
 from project.reporting.config import get_report_config
@@ -67,12 +68,18 @@ def main():
         logging.info("Starting business data integration pipeline")
         from project.helpers.pipeline import BusinessPipeline
         yelp_client = YelpClient()
-        google_client = GoogleClient()
         businesses = yelp_client.search_businesses(args.location, args.term, limit=args.limit)
-        enriched = google_client.enrich_batch(businesses)
-        logging.info(f"Fetched {len(enriched)} businesses from Yelp + Google")
-        upsert_businesses(enriched)
+        logging.info(f"Fetched {len(businesses)} businesses from Yelp")
+        upsert_businesses(businesses)
         logging.info("Upserted businesses into Supabase successfully")
+
+        # Create Zoho CRM leads for each business
+        for biz in businesses:
+            try:
+                create_zoho_lead_for_business(biz)
+            except Exception as e:
+                logging.error(f"Failed to create Zoho lead for business {biz.get('id')}: {e}")
+        logging.info("Created Zoho CRM leads for businesses")
 
         # Run business_pages pipeline for each business that has a website
         import asyncio
@@ -80,15 +87,10 @@ def main():
 
         async def run_pipelines():
             tasks = []
-            for biz in enriched:
-                # biz is a merged Yelp+Google dict according to integration.normalize_for_supabase/upsert
-                biz_id = biz.get("id") or (biz.get("yelp") or {}).get("id")
-                # Prefer Google website if present, else fall back
-                website = (
-                    (biz.get("google_enrichment") or {}).get("website")
-                    or biz.get("website")
-                    or biz.get("url")
-                )
+            for biz in businesses:
+                # biz is a Yelp dict
+                biz_id = biz.get("id")
+                website = biz.get("website") or biz.get("attributes", {}).get("menu_url")
                 if not biz_id or not website:
                     continue
                 try:
@@ -100,11 +102,11 @@ def main():
 
                 try:
                     openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "")
-                    pagespeed_api_key = os.getenv("PAGESPEED_API_KEY", "")
+                    google_api_key = os.getenv("GOOGLE_API_KEY", "")
                     db_url = os.getenv("SUPABASE_URL", "")
                     pipeline = BusinessPipeline(
                         openrouter_api_key=openrouter_api_key,
-                        pagespeed_api_key=pagespeed_api_key,
+                        google_api_key=google_api_key,
                         db_url=db_url,
                         business_id=biz_id,
                         business_url=website,
@@ -124,16 +126,12 @@ def main():
         if args.pdf:
             if args.type == "business":
                 result = generateBusinessReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
-            elif args.type == "business-visibility":
-                result = generateBusinessRankLocalReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
             else:
                 result = generateWebsiteReportPdf(args.business_id, to_path=args.out, upload=(False if args.no_upload else None))
             print(result)
         else:
             if args.type == "business":
                 html = generateBusinessReport(args.business_id)
-            elif args.type == "business-visibility":
-                html = generateBusinessRankLocalReport(args.business_id)
             else:
                 html = generateWebsiteReport(args.business_id)
             if args.out:

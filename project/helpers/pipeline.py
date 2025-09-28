@@ -12,6 +12,7 @@ from project.helpers.page_processor import PageProcessor
 from project.helpers.pagespeed import PageSpeedClient
 from project.helpers.storage import StorageClient
 from project.helpers.seo_analyzer import analyze_html
+from project.helpers.zoho_integration import update_lead_with_emails, create_contacts_for_emails, get_lead_id_by_business_id
 from project.libs.openrouter_client import summarize_page as or_summarize_page, classify_page as or_classify_page
 
 
@@ -28,12 +29,12 @@ class BusinessPipeline:
     # Shared per-process PageSpeed thread pool executor (bounded)
     _PAGESPEED_POOL: Optional[concurrent.futures.ThreadPoolExecutor] = None
 
-    def __init__(self, openrouter_api_key: str, pagespeed_api_key: str, db_url: str, business_id: str, business_url: str):
+    def __init__(self, openrouter_api_key: str, google_api_key: str, db_url: str, business_id: str, business_url: str):
         self.business_id = business_id
         self.business_url = business_url
         self.crawler = WebsiteCrawler(max_links=20)
         self.processor = PageProcessor(openrouter_api_key=openrouter_api_key, business_domain=self.extract_domain(business_url))
-        self.pagespeed = PageSpeedClient(api_key=pagespeed_api_key)
+        self.pagespeed = PageSpeedClient(api_key=google_api_key)
         self.storage = StorageClient()
 
         # Concurrency controls (configurable via env)
@@ -267,3 +268,23 @@ class BusinessPipeline:
 
         # Await all
         await asyncio.gather(*tasks)
+
+        # Update Zoho CRM lead with emails and create contacts
+        try:
+            lead_id = get_lead_id_by_business_id(self.business_id)
+            if lead_id:
+                # Collect unique emails from business_pages
+                emails = set()
+                pages = self.storage.get_business_pages(self.business_id)
+                for page in pages:
+                    if page.get('email'):
+                        # Handle multiple emails in a single field
+                        page_emails = [e.strip() for e in page['email'].split(',') if e.strip()]
+                        emails.update(page_emails)
+
+                emails_list = list(emails)
+                if emails_list:
+                    update_lead_with_emails(lead_id, emails_list)
+                    create_contacts_for_emails(lead_id, emails_list)
+        except Exception as e:
+            print(f"Error updating Zoho lead for business {self.business_id}: {e}")

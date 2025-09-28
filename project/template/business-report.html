@@ -16,62 +16,23 @@
   <div class="py-10 pt-5">
     <div class="flex flex-col">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-80 w-full">
-          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 rounded-tl-xl  rounded-tr-xl bg-white/50">
+        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-96 w-full mx-auto">
+          <div class="absolute flex justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50  rounded-tl-xl rounded-tr-xl">
             <div class="mx-auto text-sm text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_ADDRESS}, {BUSINESS_CITY}, {BUSINESS_STATE}</div>
           </div>
           <div class="absolute inset-0">
-            <img class="w-full h-80 object-cover object-center rounded-xl" src="{BUSINESS_GALLERY_IMAGE}" border="0" />
+            <img class="w-full h-96 object-cover object-center rounded-xl" src="{BUSINESS_IMAGE_URL}" border="0" />
           </div>
         </div>
-        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-80 w-full">
-          <div class="absolute flex items-center justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50  rounded-tl-xl rounded-tr-xl">
+        <div class="relative bg-zinc-100 border border-zinc-200 rounded-xl overflow-hidden h-96 w-full mx-auto">
+          <div class="absolute flex justify-between z-10 top-0 left-0 right-0 px-2 py-2 bg-white/50  rounded-tl-xl rounded-tr-xl">
             <div class="mx-auto text-sm text-[#00489c] font-semibold text-shadow-xs text-shadow-white">{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG} - {BUSINESS_NAME}</div>
           </div>
           <div class="absolute inset-0">
-            <img class="w-full h-80 object-cover object-center rounded-xl" src="{BUSINESS_MAP_IMAGE}" border="0" />
+            <img class="w-full h-96 object-cover object-center rounded-xl" src="{BUSINESS_MAP_IMAGE}" border="0" />
           </div>
         </div>
       </div>
-    </div>
-  </div>
-  <div class="py-10 pt-0">
-    <div class="flex flex-col">
-      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Amenities</div>
-        <div class="grid grid-cols-4 gap-5 text-sm">
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/utensils-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_DINE_IN}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/burger-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_TAKE_OUT}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/calendar-days-regular-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_RESERVABLE}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/beer-mug-empty-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_SERVES_BEER}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/wine-glass-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_SERVES_WINE}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/bowl-food-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_SERVES_DINNER}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/car-side-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_CURBSIDE_PICKUP}</div>
-          </div>
-          <div class="flex gap-2 items-center">
-            <img class="w-5 h-5" src="https://pub-40c668bb96484bc1a7eb6f7e34db9d04.r2.dev/images/wheelchair-solid-full.svg" border="0" />
-            <div>{BUSINESS_AMENITY_WHEERCHAIR_ACCESSIBLE_ENTRANCE}</div>
-          </div>
-        </div>
     </div>
   </div>
   <div class="py-10 pt-0">
@@ -81,13 +42,10 @@
           <ul class="text-zinc-600 text-sm block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5">
             <li>The name of the business is <b>{BUSINESS_NAME}</b>.</li>
             <li>The business is located at <b>{BUSINESS_ADDRESS}, {BUSINESS_CITY}, {BUSINESS_STATE}, {BUSINESS_COUNTRY}</b>.</li>
-            <li>The business global code is <b>{BUSINESS_GLOBAL_CODE}</b> and compound code is <b>{BUSINESS_COMPOUND_CODE}</b>.</li>
             <li>The business coordinates are <b>{BUSINESS_COORDS_LAT}, {BUSINESS_COORDS_LONG}</b>.</li>
             <li>The price range, as shown on Yelp, is <b>{BUSINESS_PRICE}</b>.</li>
             <li>The business has a total of <b>{BUSINESS_YELP_TOTAL_REVIEWS}</b> reviews on Yelp.</li>
-            <li>The business has a total of <b>{BUSINESS_GOOGLE_PLACE_TOTAL_REVIEWS}</b> reviews on Google Place.</li>
             <li>The business is rated <b>{BUSINESS_YELP_RATING}/5</b> on Yelp.</li>
-            <li>The business is rated <b>{BUSINESS_GOOGLE_PLACE_RATING}/5</b> on Google Place.</li>
             <li>Business status is <b>{BUSINESS_STATUS}</b>.</li>
             <li>The listed category/categories are: <b>{BUSINESS_CATEGORIES}</b>.</li>
             <li>The business opening hours are: <b>{BUSINESS_OPEN_DAYS}</b>.</li>
@@ -103,17 +61,16 @@
         </div>
     </div>
   </div>
-  <div class="py-10 pt-0 page-break-before">
+  <div class="py-10 pt-0">
     <div class="flex flex-col">
       <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Source</div>
       <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5 text-sm">
         <li><b>Website:</b> <a href="{BUSINESS_WEBSITE_URL}">{BUSINESS_WEBSITE_URL}</a></li>
         <li><b>Yelp:</b> <a href="{BUSINESS_YELP_URL}">{BUSINESS_YELP_URL}</a></li>
-        <li><b>Google Place:</b> <a href="{BUSINESS_GOOGLE_PLACE_URL}">{BUSINESS_GOOGLE_PLACE_URL}</a></li>
       </ul>
     </div>
   </div>
-  <div class="py-10 pt-0">
+  <div class="py-10 pt-0 page-break-before">
     <div class="flex flex-col">
       <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Contact Information</div>
       <ul class="text-zinc-600 block [&>li]:my-2 [&>li]:list-disc [&>li]:ml-5 text-sm">
@@ -125,27 +82,5 @@
       </ul>
     </div>
   </div>
-  <div class="py-10 pt-0">
-    <div class="flex flex-col">
-      <h2 class="text-2xl font-bold text-[#00489c]/90 block mb-5">Reviews</div>
-      <!--REVIEWS_ROW_START-->
-      <div class="flex items-start gap-5 mb-6">
-        <div class="w-20 h-20 rounded-full overflow-hidden bg-zinc-50 flex-shrink-0">
-          <img class="w-full h-full object-cover" src="{BUSINESS_REVIEW[INDEX]_PROFILE_PHOTO_URL}" border="0" />
-        </div>
-        <div class="flex flex-col gap-1 text-sm grow">
-          <div class="font-semibold text-zinc-800">
-            {BUSINESS_REVIEW[INDEX]_AUTHOR_NAME} - {BUSINESS_REVIEW[INDEX]_RATING} / 5
-          </div>
-          <div class="line-clamp-2 text-zinc-700">
-            {BUSINESS_REVIEW[INDEX]_TEXT}
-          </div>
-          <div class="text-zinc-600">
-            Published {BUSINESS_REVIEW[INDEX]_TIME_AGO}
-          </div>
-        </div>
-      </div>
-      <!--REVIEWS_ROW_END-->
-    </div>
   </div>
   </div>

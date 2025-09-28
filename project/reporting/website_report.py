@@ -29,6 +29,7 @@ from project.reporting.renderer import (
 )
 from project.reporting.config import get_report_config
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
+from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id
 
 
 def _fetch_pages(business_id: str) -> List[Dict[str, Any]]:
@@ -262,9 +263,19 @@ def generateWebsiteReportPdf(business_id: str, to_path: str | None = None, uploa
 
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
     if do_upload:
-        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+        uploaded_url = upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+    else:
+        uploaded_url = to_path
 
-    return to_path
+    # Attach PDF to Zoho CRM lead
+    try:
+        lead_id = get_lead_id_by_business_id(business_id)
+        if lead_id:
+            attach_pdf_to_lead(lead_id, to_path, "Website Report")
+    except Exception as e:
+        print(f"Failed to attach Website Report PDF to Zoho lead for business {business_id}: {e}")
+
+    return uploaded_url
 
 
 if __name__ == "__main__":

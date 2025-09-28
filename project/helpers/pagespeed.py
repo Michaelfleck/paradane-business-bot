@@ -8,13 +8,13 @@ from typing import Dict, Any, Optional
 class PageSpeedClient:
     """
     Wrapper for Google PageSpeed Insights API.
-    Requires an environment variable: PAGESPEED_API_KEY
+    Requires an environment variable: GOOGLE_API_KEY
     """
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("PAGESPEED_API_KEY")
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
-            raise ValueError("PAGESPEED_API_KEY is missing. Please add it to your environment variables.")
+            raise ValueError("GOOGLE_API_KEY is missing. Please add it to your environment variables.")
         self.base_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
     def analyze_page(self, url: str, strategy: str = "desktop") -> Dict[str, Any]:

@@ -18,6 +18,7 @@ class ReportConfig:
 
     Attributes:
         GOOGLE_API_KEY: Optional Google Maps API key to enable geocoding or static maps.
+        GEOAPIFY_API_KEY: Optional Geoapify API key for static maps.
         MAP_DEFAULT_SIZE: Size for static map images, e.g., "600x400".
         MAP_DEFAULT_ZOOM: Default zoom level for static maps.
         DEFAULT_PHONE_COUNTRY: Default phone country code (e.g., "US") for normalization.
@@ -36,6 +37,7 @@ class ReportConfig:
         PDF_UPLOAD_ENABLED: If true, upload generated PDFs to Storage by default.
     """
     GOOGLE_API_KEY: Optional[str]
+    GEOAPIFY_API_KEY: Optional[str]
     MAP_DEFAULT_SIZE: str
     MAP_DEFAULT_ZOOM: int
     DEFAULT_PHONE_COUNTRY: str
@@ -70,6 +72,7 @@ def get_report_config() -> ReportConfig:
 
     Supported environment variables:
         - GOOGLE_MAPS_API_KEY or GOOGLE_API_KEY
+        - GEOAPIFY_API_KEY
         - MAP_DEFAULT_SIZE (default "600x400")
         - MAP_DEFAULT_ZOOM (default "15")
         - DEFAULT_PHONE_COUNTRY (default "US")
@@ -98,8 +101,9 @@ def get_report_config() -> ReportConfig:
         ReportConfig: Parsed configuration.
     """
     api_key = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    size = os.getenv("MAP_DEFAULT_SIZE", "600x400")
-    zoom_str = os.getenv("MAP_DEFAULT_ZOOM", "18")
+    geoapify_api_key = os.getenv("GEOAPIFY_API_KEY")
+    size = os.getenv("MAP_DEFAULT_SIZE", "1000x800")
+    zoom_str = os.getenv("MAP_DEFAULT_ZOOM", "17")
     country = os.getenv("DEFAULT_PHONE_COUNTRY", "US")
 
     # HF / classifier config
@@ -160,6 +164,7 @@ def get_report_config() -> ReportConfig:
 
     return ReportConfig(
         GOOGLE_API_KEY=api_key,
+        GEOAPIFY_API_KEY=geoapify_api_key,
         MAP_DEFAULT_SIZE=size,
         MAP_DEFAULT_ZOOM=zoom,
         DEFAULT_PHONE_COUNTRY=country,

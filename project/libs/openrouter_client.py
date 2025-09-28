@@ -109,8 +109,7 @@ def generate_rank_summary(data: dict) -> str:
         "Include key insights on visibility, competitors, and no strategic recommendations, just facts. "
         "Keep it brief, professional, factual and straight to the point, suitable for business reports. "
         "Structure it in one paragraph with clear section (150 words maximum). "
-        "No markdown formatting, no section titles, just one paragraph. "
-        "Rank 60 specifically indicates that no ranking was found at that location and should be treated as 'No Rank' in all analyses, summaries, and calculations."
+        "No markdown formatting, no section titles, just one paragraph."
     )
 
     user_prompt = f"""
@@ -156,6 +155,42 @@ Grid size and gap distance as the basis for analysis. Overall visibility and ran
             return content
         except Exception as e:
             logger.error(f"Error generating rank summary (attempt {attempt+1}/3): {e}", exc_info=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+    return "Summary generation failed due to API error."
+
+
+def generate_business_summary(business_info: str) -> str:
+    """Generate a one-paragraph business summary using OpenRouter"""
+    if not client:
+        return "Business summary generation unavailable: OpenRouter client not configured."
+
+    system_instruction = (
+        "Provide a factual one-paragraph description of the business based on the following information. "
+        "Keep it brief, professional, factual and straight to the point, suitable for business reports. "
+        "Structure it in one paragraph with clear section (250 words maximum). "
+        "No markdown formatting, no section titles, just one paragraph. "
+        "Avoid marketing language and avoid lists."
+    )
+    user_prompt = business_info
+
+    import time
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-3.3-70b-instruct",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=300,
+            )
+            content = resp.choices[0].message.content.strip()
+            if not content:
+                raise ValueError("Empty response from OpenRouter")
+            return content
+        except Exception as e:
+            logger.error(f"Error generating business summary (attempt {attempt+1}/3): {e}", exc_info=True)
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
     return "Summary generation failed due to API error."

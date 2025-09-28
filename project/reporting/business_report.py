@@ -24,7 +24,10 @@ from project.reporting.utils.web import toRootDomain, buildGooglePlaceUrl, colle
 from project.reporting.utils.phone import normalizePhone
 from project.libs.supabase_client import get_client
 from project.libs.openrouter_client import generate_rank_summary
+from project.libs.openrouter_client import summarize_page as or_summarize_page
+from project.libs.openrouter_client import generate_business_summary
 from project.reporting.pdf_service import html_to_pdf_file, upload_to_supabase_storage, _project_root_abs, _inject_report_styles, _config_to_options
+from project.helpers.zoho_integration import attach_pdf_to_lead, get_lead_id_by_business_id
 
 # Logger
 logger = logging.getLogger("project.reporting.business_report")
@@ -87,6 +90,7 @@ def _fetch_business(business_id: str) -> Dict[str, Any]:
             "formatted_address",
             "google_enrichment",
             "user_ratings_total",
+            "image_url",
         ]
     )
     # Important: execute() is required to materialize the query; .single() returns a builder.
@@ -296,27 +300,29 @@ def _resolve_coords(biz: Dict[str, Any], addr: Dict[str, Optional[str]]) -> Tupl
 
 def _build_static_map_url(lat: Optional[float], lng: Optional[float]) -> Optional[str]:
     """
-    Build Google Static Map URL if key and coords present, else None.
+    Build Geoapify Static Map URL if coords present, else None.
     """
     if lat is None or lng is None:
         return None
     cfg = get_report_config()
-    if not cfg.GOOGLE_API_KEY:
+    if not cfg.GEOAPIFY_API_KEY:
         return None
-    zoom_level = int(cfg.MAP_DEFAULT_ZOOM * 1.1)
+    zoom_level = cfg.MAP_DEFAULT_ZOOM
+    size = cfg.MAP_DEFAULT_SIZE or "1000x800"
+    width, height = size.split('x')
     params = {
-        "center": f"{lat},{lng}",
+        "style": "osm-carto",
+        "width": width,
+        "height": height,
+        "center": f"lonlat:{lng},{lat}",
         "zoom": str(zoom_level),
-        "size": cfg.MAP_DEFAULT_SIZE,
-        "markers": f"color:red|{lat},{lng}",
-        "key": cfg.GOOGLE_API_KEY,
-        "maptype": "roadmap",
-        "scale": "2",
+        "marker": f"lonlat:{lng},{lat};color:#ff0000;size:medium",
+        "apiKey": cfg.GEOAPIFY_API_KEY,
     }
-    return "https://maps.googleapis.com/maps/api/staticmap?" + urlencode(params)
+    return "https://maps.geoapify.com/v1/staticmap?" + urlencode(params)
 
 
-def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 7, grid_cols: int = 7, spacing_km: float = 1.60934) -> List[Tuple[float, float]]:
+def _calculate_grid_positions(center_lat: float, center_lng: float, grid_rows: int = 5, grid_cols: int = 5, spacing_km: float = 1.60934) -> List[Tuple[float, float]]:
     """
     Calculate lat/lng positions for a grid_rows x grid_cols grid centered on center_lat, center_lng.
     Uses fixed spacing_km between adjacent bubbles in both axes (default 1.60934 km).
@@ -346,7 +352,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
     Build a heatmap-like image:
       - Base: Google Static Map with dynamic zoom to fit the 7x7 grid
       - Overlay: 7x7 bubbles spaced exactly approximately 1.666 miles apart
-      - Each bubble shows the rank at that location; ranks up to 60
+      - Each bubble shows the rank at that location; ranks up to 20
       - Bubble color: green 1-15, yellow 16-30, orange 31-45, red 46+
     Returns a tuple of (data URL of the composed PNG, average rank, ranks list, grid_positions, competitors_per_point).
     """
@@ -368,7 +374,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
 
     # Build fixed approximately 1.666 miles grid in geographic coords
     spacing_km = 1.666 * 1.60934
-    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=7, grid_cols=7, spacing_km=spacing_km)
+    grid_positions = _calculate_grid_positions(center_lat, center_lng, grid_rows=5, grid_cols=5, spacing_km=spacing_km)
 
     zoom = 12
 
@@ -427,13 +433,13 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
                 if comp.get("place_id") == target_place_id:
                     rank_text = i + 1
                     break
-            rank = rank_text if rank_text != 0 else 60
+            rank = rank_text if rank_text != 0 else 20
 
             logger.debug(f"Category '{category}' at ({lat:.6f},{lng:.6f}): text_rank={rank_text}, final_rank={rank}")
             return comps_text, rank
         except Exception as e:
             logger.warning(f"Error getting rank at {lat},{lng}: {e}")
-            return [], 60
+            return [], 20
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(search_position, grid_positions))
@@ -462,10 +468,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
             font = ImageFont.load_default()
 
     def _color_for_rank(r: Optional[int]) -> Tuple[Tuple[int, int, int, int], str]:
-        if r == 60:
-            label = ""
-        else:
-            label = str(r)
+        label = str(r)
         if r <= 5:
             return (GREEN, label)
         elif r <= 10:
@@ -473,7 +476,7 @@ def _build_heatmap_map_url(center_lat: float, center_lng: float, category: str, 
         elif r <= 20:
             return (ORANGE, label)
         else:
-            return (RED, label)
+            return (RED, "")
 
     # Draw bubbles at each grid point
     for (lat, lng), r in zip(grid_positions, ranks):
@@ -561,16 +564,6 @@ def generateBusinessReport(business_id: str) -> str:
     website_root = _resolve_website(biz)
     website_url = website_root or "N/A"
 
-    # Google Place URL and total reviews (simple, direct)
-    place_id = _safe_get(biz, "google_enrichment.place_id")
-    google_place_url = buildGooglePlaceUrl(place_id) or "N/A"
-    google_place_total_reviews = (
-        (biz.get("user_ratings_total") if isinstance(biz, dict) else None)
-        or _safe_get(biz, "user_ratings_total")
-        or "N/A"
-    )
-    google_place_rating = _safe_get(biz, "google_enrichment.rating") or "N/A"
-
     # Hours
     open_days = _resolve_hours(biz)
 
@@ -583,64 +576,21 @@ def generateBusinessReport(business_id: str) -> str:
     if lat is None or lng is None:
         logger.warning("Missing coordinates; map will show placeholder for business_id=%s", business_id)
 
+    business_image_url = biz.get("image_url")
+
+    if not business_image_url:
+        # Use 1x1 transparent GIF per spec
+        business_image_url = TRANSPARENT_GIF_DATA_URL
+
     # Static Map
     map_url = _build_static_map_url(lat, lng)
+
     if not map_url:
         # Use 1x1 transparent GIF per spec
         map_url = TRANSPARENT_GIF_DATA_URL
 
-    # Ensure config is available before using it for gallery image
+    # Ensure config is available
     cfg = get_report_config()
-
-    # Business Gallery Image via Google Places Photo API, enhanced by HF classifier
-    business_gallery_image = ""
-    try:
-        from project.libs.image_classifier import select_best_photo  # local import to avoid hard dep if unused
-        cfg_key = cfg.GOOGLE_API_KEY
-        ge = _safe_get(biz, "google_enrichment", {})
-        photos = []
-        if isinstance(ge, dict):
-            photos = ge.get("photos") or ge.get("photo") or []
-        # Normalize to list
-        if isinstance(photos, dict):
-            photos = [photos]
-        photo_refs = []
-        for p in photos:
-            if not isinstance(p, dict):
-                continue
-            pref = p.get("photo_reference")
-            if pref:
-                photo_refs.append(str(pref))
-        candidate_urls: list[str] = []
-        if cfg_key:
-            for ref in photo_refs:
-                # Build candidate URLs; width from config
-                maxw = get_report_config().GOOGLE_PHOTO_MAXWIDTH
-                candidate_urls.append(
-                    "https://maps.googleapis.com/maps/api/place/photo"
-                    + f"?maxwidth={maxw}&photo_reference={quote_plus(ref)}&key={cfg_key}"
-                )
-        # Use classifier to select the best candidate
-        selected = None
-        if candidate_urls:
-            try:
-                selected = select_best_photo(
-                    candidate_urls,
-                    timeout_s=get_report_config().CLASSIFIER_TIMEOUT_S,
-                    topk=get_report_config().CLASSIFIER_TOPK,
-                    business_name=name,
-                )
-            except Exception:
-                selected = None
-        if not selected and candidate_urls:
-            selected = candidate_urls[0]
-        business_gallery_image = selected or ""
-    except Exception:
-        business_gallery_image = ""
-
-    # Fallback to transparent GIF if still empty (keeps layout consistent)
-    if not business_gallery_image:
-        business_gallery_image = TRANSPARENT_GIF_DATA_URL
 
     # Emails
     emails = collectBusinessEmails(business_id)
@@ -649,11 +599,6 @@ def generateBusinessReport(business_id: str) -> str:
 
     # Social links collected across pages
     socials = collectBusinessSocials(business_id)
-    # Flatten into readable strings per platform for simple placeholder usage
-    # Join lists; return empty string if none so we can drop lines in template cleanly
-    def _join_or_blank(values):
-        vals = [v for v in (values or []) if isinstance(v, str) and v.strip()]
-        return ", ".join(vals) if vals else ""
 
     # Build socials <li> HTML list from collected platforms
     # Requirement:
@@ -662,7 +607,8 @@ def generateBusinessReport(business_id: str) -> str:
     def _build_social_list_html(socials_dict: Dict[str, List[str]]) -> str:
         from urllib.parse import urlparse, urlunparse
 
-        items: List[str] = []
+        platform_items: Dict[str, List[str]] = {}
+        seen: set = set()
 
         def _canonicalize_url(u: str) -> str | None:
             try:
@@ -739,8 +685,6 @@ def generateBusinessReport(business_id: str) -> str:
             "snapchat": "Snapchat",
         }
 
-        def _li(label: str, href: str, handle_text: str) -> str:
-            return f'<li><b>{label}:</b> <a href="{href}" target="_blank" rel="noopener noreferrer">{handle_text}</a></li>'
 
         for plat, urls in (socials_dict or {}).items():
             label = platform_labels.get(str(plat).lower(), str(plat).title())
@@ -753,9 +697,20 @@ def generateBusinessReport(business_id: str) -> str:
                 if not href:
                     continue
                 handle = _extract_handle(str(plat).lower(), href)
-                if not handle:
+                if not handle or len(handle.lstrip('@')) < 3:
                     continue
-                items.append(_li(label, href, handle))
+                key = (label, handle)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if label not in platform_items:
+                    platform_items[label] = []
+                platform_items[label].append(f'<a href="{href}" target="_blank" rel="noopener noreferrer">{handle}</a>')
+
+        items = []
+        for label, links in platform_items.items():
+            links_str = ", ".join(links)
+            items.append(f'<li><b>{label}:</b> {links_str}</li>')
 
         return "\n        ".join(items) if items else ""
     
@@ -772,81 +727,20 @@ def generateBusinessReport(business_id: str) -> str:
     # 9) Build context with "N/A" defaults
     ge: Dict[str, Any] = _safe_get(biz, "google_enrichment", {}) or {}
 
-    def _amenity_label(flag, yes_text: str, no_text: str) -> str:
-        if flag is None:
-            return no_text
-        if isinstance(flag, str):
-            flag = flag.lower() in ('true', '1', 'yes')
-        return yes_text if flag else no_text
-
-    # Editorial summary:
-    # - Prefer google_enrichment.editorial_summary.overview if available.
-    # - Else synthesize from reviews (up to 2 highlights) and core facts.
+    # Editorial summary: Generate from business information using OpenRouter
+    business_info = f"Name: {name}\nCategories: {categories}\nAddress: {addr1}, {city}, {state}, {country}\nPhone: {normalized_phone}\nWebsite: {website_url}\nRating: {yelp_rating} (Yelp)\nReviews: {yelp_total_reviews} (Yelp)\nStatus: {status}\nHours: {open_days}\nPrice: {price}\nYelp URL: {yelp_url}\nEmails: {emails_str}"
     editorial_summary = "—"
-    try:
-        overview = None
-        es = ge.get("editorial_summary")
-        if isinstance(es, dict):
-            overview = es.get("overview")
-        if isinstance(overview, str) and overview.strip():
-            editorial_summary = overview.strip()
-        else:
-            # Fallback synthesis
-            revs = ge.get("reviews")
-            lines: List[str] = []
-            if isinstance(revs, list) and revs:
-                # Sort by time desc if 'time' present
-                try:
-                    revs_sorted = sorted(
-                        [r for r in revs if isinstance(r, dict)],
-                        key=lambda r: r.get("time", 0),
-                        reverse=True,
-                    )
-                except Exception:
-                    revs_sorted = [r for r in revs if isinstance(r, dict)]
-                for r in revs_sorted[:2]:
-                    txt = r.get("text")
-                    if isinstance(txt, str):
-                        txt = txt.strip().replace("\n", " ")
-                        if txt:
-                            # clamp length ~220 chars
-                            if len(txt) > 220:
-                                txt = txt[:217].rstrip() + "..."
-                            lines.append(f"“{txt}”")
-            # Add one meta line
-            meta_parts: List[str] = []
-            if categories and categories != "N/A":
-                meta_parts.append(categories)
-            if isinstance(google_place_rating, (int, float)) or (isinstance(google_place_rating, str) and google_place_rating != "N/A"):
-                meta_parts.append(f"Google {google_place_rating}/5")
-            if isinstance(yelp_rating, (int, float)) or (isinstance(yelp_rating, str) and yelp_rating != "N/A"):
-                meta_parts.append(f"Yelp {yelp_rating}/5")
-            meta = ""
-            if meta_parts:
-                meta = f"{name} — " + ", ".join(meta_parts) + "."
-            # Combine
-            if lines or meta:
-                editorial_summary = " ".join(([meta] if meta else []) + lines) or "—"
-    except Exception:
-        editorial_summary = "—"
-
-    # Amenity booleans from Google enrichment with explicit phrasing
-    amenity_dine_in = _amenity_label(ge.get("dine_in"), "Dine-in Available", "No Dine-in")
-    amenity_take_out = _amenity_label(ge.get("takeout"), "Takeout Available", "No Takeout")
-    amenity_reservable = _amenity_label(ge.get("reservable"), "Reservations Accepted", "No Reservations")
-    amenity_serves_beer = _amenity_label(ge.get("serves_beer"), "Serves Beer", "Doesn't Serve Beer")
-    amenity_serves_wine = _amenity_label(ge.get("serves_wine"), "Serves Wine", "Doesn't Serve Wine")
-    amenity_serves_dinner = _amenity_label(ge.get("serves_dinner"), "Serves Dinner", "Doesn't Serve Dinner")
-    amenity_curbside_pickup = _amenity_label(ge.get("curbside_pickup"), "Curbside Pickup", "No Curbside Pickup")
-    amenity_wheelchair_entrance = _amenity_label(ge.get("wheelchair_accessible_entrance"), "Wheelchair Entrance", "No Wheelchair Entrance")
+    if business_info.strip():
+        try:
+            editorial_summary = generate_business_summary(business_info)
+        except Exception as e:
+            logger.warning(f"Failed to generate editorial summary via OpenRouter: {e}")
+            editorial_summary = "—"
 
     # Plus codes (global_code, compound_code) live under google_enrichment.plus_code per Google Places schema
     plus_code = ge.get("plus_code") if isinstance(ge, dict) else None
     if not isinstance(plus_code, dict):
         plus_code = {}
-
-    business_global_code = plus_code.get("global_code") or "N/A"
-    business_compound_code = plus_code.get("compound_code") or "N/A"
 
     context: Dict[str, Any] = {
         "BUSINESS_NAME": name,
@@ -858,34 +752,18 @@ def generateBusinessReport(business_id: str) -> str:
         "BUSINESS_COORDS_LONG": f"{lng:.6f}" if lng is not None else "N/A",
         "BUSINESS_PRICE": price,
         "BUSINESS_YELP_TOTAL_REVIEWS": yelp_total_reviews,
-        "BUSINESS_GOOGLE_PLACE_TOTAL_REVIEWS": google_place_total_reviews,
         "BUSINESS_YELP_RATING": yelp_rating,
-        "BUSINESS_GOOGLE_PLACE_RATING": google_place_rating,
         "BUSINESS_STATUS": status,
         "BUSINESS_CATEGORIES": categories,
         "BUSINESS_OPEN_DAYS": open_days if open_days else "N/A",
+        "BUSINESS_IMAGE_URL": business_image_url,
         "BUSINESS_MAP_IMAGE": map_url,
-        "BUSINESS_GALLERY_IMAGE": business_gallery_image,
         "BUSINESS_WEBSITE_URL": website_url,
         "BUSINESS_YELP_URL": yelp_url,
-        "BUSINESS_GOOGLE_PLACE_URL": google_place_url,
         "BUSINESS_EMAILS": emails_str,
         "BUSINESS_PHONE": normalized_phone,
-        # Socials as a pre-rendered list of <li> entries (only available links)
         "BUSINESS_SOCIALS_LIST": social_list_html,
-        # Newly implemented placeholders:
         "BUSINESS_EDITORIAL_SUMMARY": editorial_summary,
-        "BUSINESS_AMENITY_DINE_IN": amenity_dine_in,
-        "BUSINESS_AMENITY_TAKE_OUT": amenity_take_out,
-        "BUSINESS_AMENITY_RESERVABLE": amenity_reservable,
-        "BUSINESS_AMENITY_SERVES_BEER": amenity_serves_beer,
-        "BUSINESS_AMENITY_SERVES_WINE": amenity_serves_wine,
-        "BUSINESS_AMENITY_SERVES_DINNER": amenity_serves_dinner,
-        "BUSINESS_AMENITY_CURBSIDE_PICKUP": amenity_curbside_pickup,
-        "BUSINESS_AMENITY_WHEERCHAIR_ACCESSIBLE_ENTRANCE": amenity_wheelchair_entrance,
-        # Plus code placeholders:
-        "BUSINESS_GLOBAL_CODE": business_global_code,
-        "BUSINESS_COMPOUND_CODE": business_compound_code,
     }
 
     # 10a) Expand Reviews block using google_enrichment.reviews
@@ -989,7 +867,21 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
     biz = _fetch_business(business_id)
     name = biz.get("name") or "N/A"
     categories = _resolve_categories(biz)
-    category_list = [c.strip() for c in categories.split(", ") if c.strip() != "N/A"] if categories != "N/A" else []
+
+    # Select only one category for visibility report
+    selected_category = None
+    # First priority: use businesses.type (string)
+    if biz.get("type"):
+        selected_category = biz["type"]
+    # Second priority: take first category from businesses.categories array
+    elif biz.get("categories") and isinstance(biz["categories"], list) and len(biz["categories"]) > 0:
+        first_cat = biz["categories"][0]
+        if isinstance(first_cat, dict) and "title" in first_cat:
+            selected_category = first_cat["title"]
+        elif isinstance(first_cat, str):
+            selected_category = first_cat
+
+    category_list = [selected_category] if selected_category else []
 
     lat, lng = _resolve_coords(biz, {})
     target_place_id = _safe_get(biz, "google_enrichment.place_id")
@@ -1038,7 +930,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
         # Filter out categories where all balls have no rank (avg_rank is None)
         type_data = [d for d in type_data if d["average_rank"] is not None]
         # Filter out categories where average rank is greater than 45
-        type_data = [d for d in type_data if d["average_rank"] < 60]
+        type_data = [d for d in type_data if d["average_rank"] < 20]
         type_data.sort(key=lambda x: x["average_rank"])
 
         # Collect overall top-5 competitors across all map points
@@ -1102,7 +994,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             grid_positions = item["grid_positions"]
 
             # Calculate enhanced geographic insights
-            valid_ranks = [r for r in ranks if r is not None and r != 60]
+            valid_ranks = [r for r in ranks if r is not None and r != 20]
             average_rank = sum(valid_ranks) / len(valid_ranks) if valid_ranks else None
             visibility_coverage = len(valid_ranks) / len(ranks) * 100 if ranks else 0
             top_positions = sum(1 for r in ranks if r == 1)
@@ -1179,7 +1071,7 @@ def generateBusinessRankLocalReport(business_id: str) -> str:
             valid_ranks = [r for r in ranks if r is not None]
             if valid_ranks:
                 rank_counts = Counter(valid_ranks)
-                rank_counts = {k: v for k, v in rank_counts.items() if k < 60}
+                rank_counts = {k: v for k, v in rank_counts.items() if k < 20}
                 ranks_sorted = sorted(rank_counts.keys())
                 counts = [rank_counts[r] for r in ranks_sorted]
                 labels = [str(r) for r in ranks_sorted]
@@ -1257,7 +1149,7 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
     # Get business name for PDF title
     biz = _fetch_business(business_id)
     business_name = biz.get("name") or "Business"
-    pdf_title = f"{business_name} - Visibility Report"
+    pdf_title = f"{business_name} - Business Report"
 
     # Create custom PDF options with business-specific title
     from project.reporting.pdf_service import PDFOptions
@@ -1271,9 +1163,19 @@ def generateBusinessReportPdf(business_id: str, to_path: Optional[str] = None, u
     # Upload if requested (default to config)
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
     if do_upload:
-        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+        uploaded_url = upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+    else:
+        uploaded_url = to_path
 
-    return to_path
+    # Attach PDF to Zoho CRM lead
+    try:
+        lead_id = get_lead_id_by_business_id(business_id)
+        if lead_id:
+            attach_pdf_to_lead(lead_id, to_path, "Business Report")
+    except Exception as e:
+        logger.warning(f"Failed to attach Business Report PDF to Zoho lead for business {business_id}: {e}")
+
+    return uploaded_url
 
 
 def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] = None, upload: Optional[bool] = None) -> str:
@@ -1312,9 +1214,19 @@ def generateBusinessRankLocalReportPdf(business_id: str, to_path: Optional[str] 
     # Upload if requested (default to config)
     do_upload = cfg.PDF_UPLOAD_ENABLED if upload is None else upload
     if do_upload:
-        return upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+        uploaded_url = upload_to_supabase_storage(to_path, bucket=cfg.STORAGE_BUCKET_REPORTS)
+    else:
+        uploaded_url = to_path
 
-    return to_path
+    # Attach PDF to Zoho CRM lead
+    try:
+        lead_id = get_lead_id_by_business_id(business_id)
+        if lead_id:
+            attach_pdf_to_lead(lead_id, to_path, "Visibility Report")
+    except Exception as e:
+        logger.warning(f"Failed to attach Visibility Report PDF to Zoho lead for business {business_id}: {e}")
+
+    return uploaded_url
 
 
 def main():
