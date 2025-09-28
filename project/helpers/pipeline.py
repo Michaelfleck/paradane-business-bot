@@ -83,11 +83,12 @@ class BusinessPipeline:
         return task
 
     async def run(self):
-        # Skip processing if we've processed pages for this business within last 24 hours
+        # Check if we've processed pages recently (for skipping page processing)
+        skip_page_processing = False
         try:
             if self.storage.business_pages_recently_updated(self.business_id):
                 print(f"[INFO] Skipping page processing for {self.business_id}: processed within last 24 hours")
-                return
+                skip_page_processing = True
         except Exception:
             # Non-fatal; continue best-effort
             pass
