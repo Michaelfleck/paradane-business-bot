@@ -118,7 +118,7 @@ class BusinessPipeline:
                             async def safe_goto(target_url: str) -> Optional[str]:
                                 for attempt in range(3):
                                     try:
-                                        await page.goto(target_url, wait_until="domcontentloaded", timeout=360000)
+                                        await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
                                         # Return full HTML (head + body) so SEO analyzer can see meta tags, title, etc.
                                         return await page.content()
                                     except Exception as e:

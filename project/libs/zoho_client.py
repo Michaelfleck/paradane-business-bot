@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 class ZohoAuth:
     """Handles Zoho OAuth2 authentication and token management."""
 
+    # Class-level cache for shared token state across instances
+    _shared_access_token: Optional[str] = None
+    _shared_token_expires_at: Optional[float] = None
+
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str, refresh_token: Optional[str] = None, data_center: str = "us"):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -23,13 +27,11 @@ class ZohoAuth:
             self.base_url = f"https://www.zohoapis{self.data_center}.com"
             self.auth_url = f"https://accounts.zoho{self.data_center}.com/oauth/v2/token"
             self.auth_base_url = f"https://accounts.zoho{self.data_center}.com/oauth/v2/auth"
-        self._access_token: Optional[str] = None
-        self._token_expires_at: Optional[float] = None
 
     def _get_access_token(self) -> str:
         """Get a valid access token, refreshing if necessary."""
-        if self._access_token and self._token_expires_at and time.time() < self._token_expires_at - 60:  # Refresh 1 min early
-            return self._access_token
+        if ZohoAuth._shared_access_token and ZohoAuth._shared_token_expires_at and time.time() < ZohoAuth._shared_token_expires_at - 60:  # Refresh 1 min early
+            return ZohoAuth._shared_access_token
 
         if not self.refresh_token:
             raise ValueError("No refresh token available. Please complete OAuth authorization first.")
@@ -46,12 +48,12 @@ class ZohoAuth:
             response.raise_for_status()
             token_data = response.json()
 
-            self._access_token = token_data['access_token']
+            ZohoAuth._shared_access_token = token_data['access_token']
             expires_in = token_data.get('expires_in', 3600)  # Default 1 hour
-            self._token_expires_at = time.time() + expires_in
+            ZohoAuth._shared_token_expires_at = time.time() + expires_in
 
             logger.info("Successfully refreshed Zoho access token")
-            return self._access_token
+            return ZohoAuth._shared_access_token
         except requests.RequestException as e:
             logger.error(f"Failed to refresh Zoho access token: {e}")
             raise
@@ -94,10 +96,10 @@ class ZohoAuth:
                 logger.error(f"Access token not found in response. Full response: {token_data}")
                 raise ValueError(f"Invalid response from Zoho: missing access_token. Response: {token_data}")
 
-            self._access_token = token_data['access_token']
+            ZohoAuth._shared_access_token = token_data['access_token']
             self.refresh_token = token_data['refresh_token']
             expires_in = token_data.get('expires_in', 3600)
-            self._token_expires_at = time.time() + expires_in
+            ZohoAuth._shared_token_expires_at = time.time() + expires_in
 
             logger.info("Successfully exchanged code for Zoho tokens")
             return token_data
@@ -164,7 +166,7 @@ class ZohoCRMClient:
     def update_lead(self, lead_id: str, lead_data: Dict[str, Any]) -> bool:
         """Update an existing lead in Zoho CRM."""
         endpoint = f"/crm/v2/Leads/{lead_id}"
-        response = self._make_request("PUT", endpoint, lead_data)
+        response = self._make_request("PUT", endpoint, {"data": [lead_data]})
 
         if 'data' in response and response['data']:
             logger.info(f"Updated Zoho lead: {lead_id}")
@@ -183,6 +185,25 @@ class ZohoCRMClient:
         else:
             raise ValueError("Failed to create contact - no ID returned")
 
+    def update_contact(self, contact_id: str, contact_data: Dict[str, Any]) -> bool:
+        """Update an existing contact in Zoho CRM."""
+        endpoint = f"/crm/v2/Contacts/{contact_id}"
+        response = self._make_request("PUT", endpoint, {"data": [contact_data]})
+
+        if 'data' in response and response['data']:
+            logger.info(f"Updated Zoho contact: {contact_id}")
+            return True
+        return False
+    def get_contact(self, contact_id: str) -> Optional[Dict[str, Any]]:
+        """Get a contact by ID from Zoho CRM."""
+        endpoint = f"/crm/v2/Contacts/{contact_id}"
+        response = self._make_request("GET", endpoint)
+
+        if 'data' in response and response['data']:
+            return response['data'][0]
+        return None
+
+
     def attach_document(self, module: str, record_id: str, file_path: str, file_name: str) -> bool:
         """Attach a document to a record (lead/contact)."""
         endpoint = f"/crm/v2/{module}/{record_id}/Attachments"
@@ -199,9 +220,29 @@ class ZohoCRMClient:
     def search_leads(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search for leads based on criteria."""
         endpoint = "/crm/v2/Leads/search"
-        params = "&".join([f"{k}={v}" for k, v in criteria.items()])
-        if params:
-            endpoint += f"?{params}"
+        # Zoho CRM search format: criteria=(field:operator:value)
+        criteria_parts = []
+        for field, value in criteria.items():
+            criteria_parts.append(f"({field}:equals:{value})")
+
+        if criteria_parts:
+            criteria_str = "or".join(criteria_parts) if len(criteria_parts) > 1 else criteria_parts[0]
+            endpoint += f"?criteria={criteria_str}"
+
+        response = self._make_request("GET", endpoint)
+        return response.get('data', [])
+
+    def search_contacts(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Search for contacts based on criteria."""
+        endpoint = "/crm/v2/Contacts/search"
+        # Zoho CRM search format: criteria=(field:operator:value)
+        criteria_parts = []
+        for field, value in criteria.items():
+            criteria_parts.append(f"({field}:equals:{value})")
+
+        if criteria_parts:
+            criteria_str = "or".join(criteria_parts) if len(criteria_parts) > 1 else criteria_parts[0]
+            endpoint += f"?criteria={criteria_str}"
 
         response = self._make_request("GET", endpoint)
         return response.get('data', [])

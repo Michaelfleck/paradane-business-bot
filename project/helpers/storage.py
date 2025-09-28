@@ -114,6 +114,24 @@ class StorageClient:
             logging.warning(f"get_business_page failed for {business_id} {url}: {e}")
             return None
 
+    def get_business_pages(self, business_id: str) -> list:
+        """
+        Fetch all business_pages rows for a given business_id.
+        Returns a list of dicts with page data.
+        """
+        try:
+            resp = (
+                self.client.table("business_pages")
+                .select("business_id,url,summary,page_type,email,social_links,page_speed_score,time_to_interactive_ms,seo_score,seo_explanation,updated_at")
+                .eq("business_id", business_id)
+                .execute()
+            )
+            rows = getattr(resp, "data", None) or []
+            return rows
+        except Exception as e:
+            logging.warning(f"get_business_pages failed for {business_id}: {e}")
+            return []
+
     def insert_business_page(self, page: Dict[str, Any]):
         """
         Insert or update a record in business_pages via upsert.

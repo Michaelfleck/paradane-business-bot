@@ -13,6 +13,7 @@ from project.helpers.integration import (
     upsert_businesses,
 )
 from project.helpers.zoho_integration import create_zoho_lead_for_business
+from project.helpers.crawler import normalize_homepage_url
 from project.libs.yelp_client import YelpClient
 # from project.libs.google_client import GoogleClient
 from project.libs.zoho_client import ZohoAuth
@@ -104,6 +105,7 @@ def main():
                 website = biz.get("website") or biz.get("attributes", {}).get("menu_url")
                 if not biz_id or not website:
                     continue
+                website = normalize_homepage_url(website)
                 try:
                     parsed = urlparse(website)
                     if parsed.scheme not in ("http", "https"):

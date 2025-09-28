@@ -79,7 +79,7 @@ class WebsiteCrawler:
                 """Try to navigate with retries and fallback to http if https fails."""
                 for attempt in range(3):
                     try:
-                        await page.goto(target_url, wait_until="domcontentloaded", timeout=360000)
+                        await page.goto(target_url, wait_until="load", timeout=30000)
                         return True
                     except Exception as e:
                         _logging.error(f"Error navigating to {target_url} (attempt {attempt+1}/3): {e}")

@@ -52,3 +52,11 @@ Run the SQL (idempotent) to add the column if it doesn't exist:
 ALTER TABLE business_pages
 ADD COLUMN IF NOT EXISTS social_links TEXT NULL;
 ```
+
+@/project/main.py @/project/reporting/business_report.py @/project/reporting/website_report.py 
+
+I need you to do the following:
+
+1. After we are done with the business scrapping for both businesses and business_pages then we need to generate report for the business. Just like how we have logics to generate the business_pages, we will do the same for reports as well. 
+2. When generating report, we will confirm with Zoho CRM lead to see if the report has been added. If the report doesn't exsit we will upload, otherwise there's no need to re-upload. This logics need to be in report generation module. Everytime we generate report we check if it exists for the lead, only if it doesn't exist we upload report.
+3. We need to modify the output dir of all reports. When generating reports, you need to make Folder in the /tmp/reports. Folder name will be business name. 

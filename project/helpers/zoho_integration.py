@@ -113,9 +113,25 @@ def map_business_to_lead(business: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in lead_data.items() if v is not None}
 
 def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
-    """Create a Zoho lead for a business and return the lead ID."""
+    """Create a Zoho lead for a business and return the lead ID. Checks for duplicates first."""
     try:
         client = get_zoho_client()
+        company_name = business.get('name')
+
+        # Check for existing lead with same company name
+        if company_name:
+            existing_leads = client.search_leads({"Company": company_name})
+            if existing_leads:
+                existing_lead_id = existing_leads[0]['id']
+                logger.info(f"Found existing Zoho lead {existing_lead_id} for business {business['id']} (company: {company_name})")
+
+                # Update the business record with the existing Zoho lead ID
+                supabase_client = get_client()
+                supabase_client.table("businesses").update({"zoho_lead_id": existing_lead_id}).eq("id", business["id"]).execute()
+
+                return existing_lead_id
+
+        # No existing lead found, create new one
         lead_data = map_business_to_lead(business)
         lead_id = client.create_lead(lead_data)
 
@@ -155,57 +171,80 @@ def derive_name_from_email(email: str) -> Tuple[Optional[str], Optional[str]]:
     if not email or '@' not in email:
         return None, None
 
-    local_part = email.split('@')[0]
+    local_part = email.split('@')[0].lower()
 
-    # Check for john.smith pattern
-    if '.' in local_part:
-        parts = local_part.split('.')
-        if len(parts) >= 2:
-            first = parts[0].capitalize()
-            last = parts[1].capitalize()
-            return first, last
+    # Only handle clear, unambiguous patterns
+    patterns = [
+        (r'^([a-z]+)\_([a-z]+)$', lambda m: (m.group(1).capitalize(), m.group(2).capitalize())),  # john_doe
+        (r'^([a-z]+)\.([a-z]+)$', lambda m: (m.group(1).capitalize(), m.group(2).capitalize())),  # john.doe
+        (r'^([a-z])\.([a-z]+)$', lambda m: (m.group(1).upper(), m.group(2).capitalize())),  # j.doe
+    ]
 
-    # Generic pattern: use domain as first name, local part as last name
-    domain = email.split('@')[1].split('.')[0].capitalize()
-    last = local_part.capitalize()
-    return domain, last
+    for pattern, extractor in patterns:
+        match = re.match(pattern, local_part)
+        if match:
+            return extractor(match)
+
+    # For ambiguous cases, use as last name only to avoid incorrect assumptions
+    return None, local_part.capitalize()
 
 def create_contacts_for_emails(lead_id: str, emails: List[str]) -> bool:
-    """Create Zoho contacts for each unique email associated with the lead."""
+    """Create Zoho contacts for each unique email associated with the lead, or link existing contacts."""
     if not emails:
         return True
 
     try:
         client = get_zoho_client()
-        created_emails = set()
+        processed_emails = set()
 
         for email in emails:
-            if email in created_emails:
+            if email in processed_emails:
                 continue
 
-            first_name, last_name = derive_name_from_email(email)
+            # Check if contact already exists with this email
+            existing_contacts = client.search_contacts({"Email": email})
+            if existing_contacts:
+                # Check if contact is already linked to this lead
+                contact_id = existing_contacts[0]['id']
+                contact_details = client.get_contact(contact_id)
+                if contact_details and contact_details.get('Lead') == lead_id:
+                    logger.info(f"Contact {contact_id} for email {email} is already linked to lead {lead_id}, skipping update")
+                    processed_emails.add(email)
+                else:
+                    # Update existing contact to link with the lead
+                    update_data = {'Lead': lead_id}
+                    success = client.update_contact(contact_id, update_data)
+                    if success:
+                        logger.info(f"Linked existing contact {contact_id} for email {email} to lead {lead_id}")
+                        processed_emails.add(email)
+                    else:
+                        logger.error(f"Failed to link existing contact {contact_id} for email {email} to lead {lead_id}")
+            else:
+                # Create new contact
+                first_name, last_name = derive_name_from_email(email)
 
-            contact_data = {
-                'Email': email,
-                'First_Name': first_name,
-                'Last_Name': last_name,
-                'Lead_Source': 'Web Research'
-            }
+                contact_data = {
+                    'Email': email,
+                    'First_Name': first_name,
+                    'Last_Name': last_name,
+                    'Lead_Source': 'Web Research',
+                    'Lead': lead_id  # Link to lead during creation
+                }
 
-            # Remove None values
-            contact_data = {k: v for k, v in contact_data.items() if v is not None}
+                # Remove None values
+                contact_data = {k: v for k, v in contact_data.items() if v is not None}
 
-            try:
-                contact_id = client.create_contact(contact_data)
-                logger.info(f"Created contact {contact_id} for email {email} linked to lead {lead_id}")
-                created_emails.add(email)
-            except Exception as e:
-                logger.error(f"Failed to create contact for email {email}: {e}")
-                continue
+                try:
+                    contact_id = client.create_contact(contact_data)
+                    logger.info(f"Created contact {contact_id} for email {email} linked to lead {lead_id}")
+                    processed_emails.add(email)
+                except Exception as e:
+                    logger.error(f"Failed to create contact for email {email}: {e}")
+                    continue
 
         return True
     except Exception as e:
-        logger.error(f"Failed to create contacts for lead {lead_id}: {e}")
+        logger.error(f"Failed to process contacts for lead {lead_id}: {e}")
         return False
 
 def attach_pdf_to_lead(lead_id: str, pdf_path: str, report_type: str) -> bool:
