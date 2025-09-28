@@ -214,7 +214,7 @@ def create_zoho_lead_for_business(business: Dict[str, Any]) -> Optional[str]:
         lead_data = map_business_to_lead(business)
         campaign_id = os.getenv('ZOHO_CAMPAIGN_ID')
         if campaign_id:
-            lead_data['Campaign'] = campaign_id
+            lead_data['Campaign'] = {'id': campaign_id}
         lead_id = client.create_lead(lead_data)
 
         # Create or link account
