@@ -263,6 +263,18 @@ class ZohoCRMClient:
             logger.info(f"Attached document {file_name} to {module}/{record_id}")
             return True
         return False
+    def upload_photo(self, module: str, record_id: str, file_path: str, content_type: str = 'image/jpeg') -> bool:
+        """Upload a photo for a record (lead/contact) to set as display picture."""
+        endpoint = f"/crm/v2/{module}/{record_id}/photo"
+
+        with open(file_path, 'rb') as f:
+            files = {'file': (os.path.basename(file_path), f, content_type)}
+            response = self._make_request("POST", endpoint, files=files)
+
+        if 'data' in response and response['data']:
+            logger.info(f"Uploaded photo for {module}/{record_id}")
+            return True
+        return False
 
     def get_attachments(self, module: str, record_id: str) -> List[Dict[str, Any]]:
         """Get list of attachments for a record."""

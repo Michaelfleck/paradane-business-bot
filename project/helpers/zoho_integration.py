@@ -536,12 +536,7 @@ def attach_image_to_lead(business_id: str, lead_id: str) -> bool:
         business_name = response.data.get("name", "Business")
         logger.info(f"Retrieved image_url='{image_url}' and business_name='{business_name}' for business {business_id}")
 
-        # Check if image already attached
-        exists = check_image_attachment_exists(lead_id, business_name)
-        logger.info(f"Image attachment exists check for lead {lead_id}, business {business_name}: {exists}")
-        if exists:
-            logger.info(f"Image already attached to lead {lead_id} for business {business_name}")
-            return True
+        # Note: For photo upload, we don't check existence as photo can be updated
 
         # Download the image
         logger.info(f"Attempting to download image from {image_url}")
@@ -564,11 +559,11 @@ def attach_image_to_lead(business_id: str, lead_id: str) -> bool:
             # Attach to Zoho lead
             logger.info(f"Attempting to attach document to Zoho lead {lead_id}: file_name='{file_name}', content_type='{content_type}'")
             client = get_zoho_client()
-            success = client.attach_document("Leads", lead_id, temp_file_path, file_name, content_type)
+            success = client.upload_photo("Leads", lead_id, temp_file_path, content_type)
             if success:
-                logger.info(f"Successfully attached image to lead {lead_id} for business {business_id}")
+                logger.info(f"Successfully uploaded photo to lead {lead_id} for business {business_id}")
             else:
-                logger.error(f"Zoho attach_document returned False for lead {lead_id}, file {file_name}")
+                logger.error(f"Zoho upload_photo returned False for lead {lead_id}")
             return success
         finally:
             # Clean up temp file
